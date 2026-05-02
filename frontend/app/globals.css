@@ -1,0 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 220 20% 97%;
+    --foreground: 220 20% 8%;
+    --primary: 221 83% 53%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 14% 90%;
+    --secondary-foreground: 220 14% 20%;
+    --muted: 220 14% 92%;
+    --muted-foreground: 220 10% 42%;
+    --accent: 220 14% 88%;
+    --accent-foreground: 220 14% 15%;
+    --destructive: 0 84% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 13% 84%;
+    --input: 220 13% 84%;
+    --ring: 221 83% 53%;
+    --radius: 0.75rem;
+    --card: 0 0% 100%;
+    --card-foreground: 220 20% 8%;
+  }
+
+  .dark {
+    --background: 222 47% 5%;
+    --foreground: 210 40% 96%;
+    --primary: 221 83% 60%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 217 32% 13%;
+    --secondary-foreground: 210 40% 96%;
+    --muted: 217 32% 12%;
+    --muted-foreground: 215 20% 55%;
+    --accent: 217 32% 14%;
+    --accent-foreground: 210 40% 96%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 217 32% 15%;
+    --input: 217 32% 15%;
+    --ring: 221 83% 60%;
+    --card: 222 47% 7%;
+    --card-foreground: 210 40% 96%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@layer utilities {
+  /* Light mode: subtle white card with border. Dark mode: translucent white on dark. */
+  .glass {
+    @apply bg-white dark:bg-white/5 border border-black/10 dark:border-white/10 backdrop-blur-xl;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  .dark .glass {
+    box-shadow: none;
+  }
+  .glass-hover {
+    @apply transition-all duration-200
+           hover:border-black/20 dark:hover:border-white/20
+           hover:shadow-md dark:hover:shadow-2xl
+           hover:-translate-y-0.5;
+  }
+}

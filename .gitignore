@@ -1,0 +1,38 @@
+# ── Backend ──────────────────────────────────────────────────────────────────
+backend/cluster-hub-server
+backend/cluster-hub-server.exe
+backend/*.db
+backend/*.db-shm
+backend/*.db-wal
+
+# ── Frontend ─────────────────────────────────────────────────────────────────
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.env.local
+frontend/.env.*.local
+
+# ── Scripts / build artifacts ────────────────────────────────────────────────
+scripts/*.exe
+
+# ── DB (root, if run from project root) ──────────────────────────────────────
+*.db
+*.db-shm
+*.db-wal
+
+# ── OS ───────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Editor ───────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Env ──────────────────────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
