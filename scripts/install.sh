@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 set -e
 
+# Expand PATH to common tool install locations (handles nvm, go, homebrew, etc.)
+export PATH="$PATH:/usr/local/go/bin:/usr/local/bin:/usr/bin"
+[ -f /etc/profile ] && source /etc/profile
+[ -f "$HOME/.profile" ] && source "$HOME/.profile"
+[ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc"
+
 # Run as root to register systemd services
 if [ "$(id -u)" -ne 0 ]; then
-  echo "Please run this script as root (e.g. sudo bash install.sh)"
+  echo "Please run this script as root (e.g. sudo -E bash install.sh)"
   exit 1
 fi
 
