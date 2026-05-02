@@ -7,6 +7,12 @@ export PATH="$PATH:/usr/local/go/bin:/usr/local/bin:/usr/bin"
 [ -f "$HOME/.profile" ] && source "$HOME/.profile"
 [ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc"
 
+# Load nvm from the invoking user's home (sudo resets $HOME to /root)
+REAL_HOME=$(getent passwd "${SUDO_USER:-$USER}" | cut -d: -f6)
+export NVM_DIR="$REAL_HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/bash_completion" ] && source "$NVM_DIR/bash_completion"
+
 # Run as root to register systemd services
 if [ "$(id -u)" -ne 0 ]; then
   echo "Please run this script as root (e.g. sudo -E bash install.sh)"
