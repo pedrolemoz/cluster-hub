@@ -2,6 +2,7 @@
 const backendUrl = process.env.BACKEND_URL || 'http://localhost:3001';
 
 const nextConfig = {
+  output: 'standalone',
   async rewrites() {
     return [
       {

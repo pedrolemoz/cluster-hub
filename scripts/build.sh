@@ -1,16 +1,20 @@
 #!/bin/sh
-# Build cluster-hub-agent binaries for all supported platforms
+# Build cluster-hub-agent binaries and frontend for all supported platforms
 set -e
 
 BINARY_NAME="cluster-hub-agent"
-SRC_DIR="$(cd "$(dirname "$0")/../backend" && pwd)"
-OUT_DIR="$(cd "$(dirname "$0")/.." && pwd)/dist"
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+SRC_DIR="$ROOT_DIR/backend"
+FRONTEND_DIR="$ROOT_DIR/frontend"
+OUT_DIR="$ROOT_DIR/dist"
 
 mkdir -p "$OUT_DIR"
 
-echo "Building from $SRC_DIR"
 echo "Output: $OUT_DIR"
 echo ""
+
+# --- Go binaries ---
+echo "=== Building Go binaries ==="
 
 build() {
   GOOS="$1" GOARCH="$2" GOARM="${3:-}" CGO_ENABLED=0 \
@@ -25,6 +29,31 @@ build() {
   build windows amd64 "" "${BINARY_NAME}.exe"
 )
 
+# --- Frontend ---
 echo ""
-echo "Binaries written to dist/:"
+echo "=== Building frontend ==="
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "Error: node not found — install Node.js 18+ to build frontend" >&2
+  exit 1
+fi
+
+(cd "$FRONTEND_DIR" && \
+  npm ci --prefer-offline && \
+  npm run build
+)
+
+# Package standalone build
+STANDALONE="$FRONTEND_DIR/.next/standalone"
+cp -r "$FRONTEND_DIR/.next/static" "$STANDALONE/.next/static"
+if [ -d "$FRONTEND_DIR/public" ]; then
+  cp -r "$FRONTEND_DIR/public" "$STANDALONE/public"
+fi
+
+TARBALL="$OUT_DIR/cluster-hub-frontend.tar.gz"
+tar -czf "$TARBALL" -C "$STANDALONE" .
+echo "  OK  cluster-hub-frontend.tar.gz"
+
+echo ""
+echo "Artifacts in dist/:"
 ls -lh "$OUT_DIR"
