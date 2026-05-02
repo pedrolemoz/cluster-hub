@@ -79,10 +79,11 @@ sc.exe failure $HubServiceName reset= 60 actions= restart/5000/restart/10000/res
 
 # Set environment variables for hub service via registry
 $HubRegPath = "HKLM:\SYSTEM\CurrentControlSet\Services\$HubServiceName"
-Set-ItemProperty -Path $HubRegPath -Name "Environment" -Value @(
+[string[]]$hubEnv = @(
     "PORT=3001",
     "DB_PATH=$InstallDir\cluster.db"
 )
+New-ItemProperty -Path $HubRegPath -Name "Environment" -PropertyType MultiString -Value $hubEnv -Force | Out-Null
 
 # --- Register frontend service via node wrapper ---
 $NodePath = (Get-Command node).Source
@@ -97,11 +98,12 @@ sc.exe description $FrontendServiceName "Cluster Hub Next.js web UI" | Out-Null
 sc.exe failure $FrontendServiceName reset= 60 actions= restart/5000/restart/10000/restart/30000 | Out-Null
 
 $FeRegPath = "HKLM:\SYSTEM\CurrentControlSet\Services\$FrontendServiceName"
-Set-ItemProperty -Path $FeRegPath -Name "Environment" -Value @(
+[string[]]$feEnv = @(
     "PORT=3000",
     "HOSTNAME=0.0.0.0",
     "BACKEND_URL=http://localhost:3001"
 )
+New-ItemProperty -Path $FeRegPath -Name "Environment" -PropertyType MultiString -Value $feEnv -Force | Out-Null
 
 # --- Start services ---
 Write-Host "Starting services..."
