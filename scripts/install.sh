@@ -2,7 +2,7 @@
 set -e
 
 # Run as root to register systemd services
-if [ "$EUID" -ne 0 ]; then
+if [ "$(id -u)" -ne 0 ]; then
   echo "Please run this script as root (e.g. sudo bash install.sh)"
   exit 1
 fi
