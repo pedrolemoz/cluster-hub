@@ -1,165 +1,96 @@
-#!/bin/sh
-# Cluster Hub installer — installs backend hub + frontend web UI
-# Usage: curl -fsSL https://raw.githubusercontent.com/pedrolemoz/cluster-hub/main/scripts/install.sh | sh
+#!/usr/bin/env bash
 set -e
 
-HUB_SERVICE="cluster-hub"
-FRONTEND_SERVICE="cluster-hub-frontend"
-INSTALL_DIR="/opt/cluster-hub"
-HUB_BINARY="$INSTALL_DIR/cluster-hub-agent"
-FRONTEND_DIR="$INSTALL_DIR/frontend"
-HUB_SERVICE_FILE="/etc/systemd/system/$HUB_SERVICE.service"
-FRONTEND_SERVICE_FILE="/etc/systemd/system/$FRONTEND_SERVICE.service"
-
-echo ""
-echo "=== Cluster Hub Installer ==="
-echo ""
-
-# Require root
-if [ "$(id -u)" -ne 0 ]; then
-  echo "Error: run as root (sudo sh install.sh)" >&2
+# Run as root to register systemd services
+if [ "$EUID" -ne 0 ]; then
+  echo "Please run this script as root (e.g. sudo bash install.sh)"
   exit 1
 fi
 
-# Require Node.js 18+
-if ! command -v node >/dev/null 2>&1; then
-  echo "Error: node not found. Install Node.js 18+ and re-run." >&2
-  echo "  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -" >&2
-  echo "  apt-get install -y nodejs" >&2
-  exit 1
-fi
+echo "Checking dependencies..."
+MISSING=""
+command -v git >/dev/null 2>&1 || MISSING="$MISSING git"
+command -v go >/dev/null 2>&1 || MISSING="$MISSING golang"
+command -v node >/dev/null 2>&1 || MISSING="$MISSING node.js"
+command -v npm >/dev/null 2>&1 || MISSING="$MISSING npm"
 
-NODE_MAJOR=$(node -e "process.stdout.write(String(process.versions.node.split('.')[0]))")
-if [ "$NODE_MAJOR" -lt 18 ]; then
-  echo "Error: Node.js 18+ required (found $NODE_MAJOR)" >&2
-  exit 1
-fi
-
-# Detect architecture
-ARCH=$(uname -m)
-case "$ARCH" in
-  x86_64)         ARCH_TAG="amd64" ;;
-  aarch64|arm64)  ARCH_TAG="arm64" ;;
-  armv7l|armv6l)  ARCH_TAG="armv7" ;;
-  *)
-    echo "Unsupported architecture: $ARCH" >&2
-    exit 1
-    ;;
-esac
-
-# Fetch latest release tag
-echo "Fetching latest release..."
-LATEST_TAG=$(curl -fsSL "https://api.github.com/repos/pedrolemoz/cluster-hub/releases/latest" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
-if [ -z "$LATEST_TAG" ]; then
-  echo "Error: could not fetch latest release tag" >&2
-  exit 1
-fi
-echo "Latest release: $LATEST_TAG"
-
-BASE_URL="https://github.com/pedrolemoz/cluster-hub/releases/download/$LATEST_TAG"
-
-# Create install directory
-mkdir -p "$INSTALL_DIR"
-mkdir -p "$FRONTEND_DIR"
-
-# --- Download hub binary ---
-echo ""
-echo "Downloading hub backend ($ARCH_TAG)..."
-curl -fsSL "$BASE_URL/cluster-hub-agent-linux-$ARCH_TAG" -o "$HUB_BINARY"
-chmod +x "$HUB_BINARY"
-echo "Saved to $HUB_BINARY"
-
-# --- Download + extract frontend ---
-echo ""
-echo "Downloading frontend..."
-curl -fsSL "$BASE_URL/cluster-hub-frontend.tar.gz" -o /tmp/cluster-hub-frontend.tar.gz
-tar -xzf /tmp/cluster-hub-frontend.tar.gz -C "$FRONTEND_DIR"
-rm /tmp/cluster-hub-frontend.tar.gz
-echo "Extracted to $FRONTEND_DIR"
-
-# --- Systemd services ---
-if ! command -v systemctl >/dev/null 2>&1; then
+if [ -n "$MISSING" ]; then
   echo ""
-  echo "systemd not found. Run manually:"
-  echo "  Hub:      $HUB_BINARY"
-  echo "  Frontend: node $FRONTEND_DIR/server.js"
-  exit 0
+  echo "ERROR: Missing required dependencies:$MISSING"
+  echo "Please install them and try again. This script will not download them automatically."
+  exit 1
 fi
 
-stop_if_running() {
-  if systemctl is-active --quiet "$1" 2>/dev/null; then
-    echo "Stopping $1..."
-    systemctl stop "$1"
-  fi
-}
+INSTALL_DIR="/opt/cluster-hub-dev"
+if [ -d "$INSTALL_DIR" ]; then
+  echo "Removing existing installation at $INSTALL_DIR..."
+  systemctl stop cluster-hub-backend 2>/dev/null || true
+  systemctl stop cluster-hub-frontend 2>/dev/null || true
+  rm -rf "$INSTALL_DIR"
+fi
 
-stop_if_running "$HUB_SERVICE"
-stop_if_running "$FRONTEND_SERVICE"
+echo "Cloning project to $INSTALL_DIR..."
+git clone https://github.com/pedrolemoz/cluster-hub.git "$INSTALL_DIR"
+
+echo "Building Backend..."
+cd "$INSTALL_DIR/backend"
+go mod tidy
+go build -o main
+
+echo "Building Frontend..."
+cd "$INSTALL_DIR/frontend"
+npm install
+npm run build
 
 echo "Creating systemd services..."
+# We use bash -lc to ensure profile is loaded so it can find go and npm paths
 
-cat > "$HUB_SERVICE_FILE" << EOF
+cat <<EOF > /etc/systemd/system/cluster-hub-backend.service
 [Unit]
-Description=Cluster Hub Backend
-Documentation=https://github.com/pedrolemoz/cluster-hub
+Description=Cluster Hub Backend Dev
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=$HUB_BINARY
-Environment=PORT=3001
-Environment=DB_PATH=$INSTALL_DIR/cluster.db
+User=root
+WorkingDirectory=$INSTALL_DIR/backend
+ExecStart=$INSTALL_DIR/backend/main
 Restart=always
 RestartSec=5
-StandardOutput=journal
-StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-cat > "$FRONTEND_SERVICE_FILE" << EOF
+cat <<EOF > /etc/systemd/system/cluster-hub-frontend.service
 [Unit]
-Description=Cluster Hub Frontend
-Documentation=https://github.com/pedrolemoz/cluster-hub
-After=network.target $HUB_SERVICE.service
+Description=Cluster Hub Frontend Dev
+After=network.target
 
 [Service]
 Type=simple
-ExecStart=$(command -v node) $FRONTEND_DIR/server.js
-Environment=PORT=3000
-Environment=HOSTNAME=0.0.0.0
-Environment=BACKEND_URL=http://localhost:3001
+User=root
+WorkingDirectory=$INSTALL_DIR/frontend
+ExecStart=/usr/bin/env bash -lc "npm start"
 Restart=always
 RestartSec=5
-StandardOutput=journal
-StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
+echo "Enabling and starting services..."
 systemctl daemon-reload
-
-for SVC in "$HUB_SERVICE" "$FRONTEND_SERVICE"; do
-  systemctl enable "$SVC"
-  systemctl start "$SVC"
-done
-
-sleep 2
-
-HUB_STATUS=$(systemctl is-active "$HUB_SERVICE" 2>/dev/null || echo "unknown")
-FE_STATUS=$(systemctl is-active "$FRONTEND_SERVICE" 2>/dev/null || echo "unknown")
+systemctl enable cluster-hub-backend
+systemctl enable cluster-hub-frontend
+systemctl start cluster-hub-backend
+systemctl start cluster-hub-frontend
 
 echo ""
-echo "Done!"
-echo "  Hub backend:  $HUB_STATUS  (port 3001)"
-echo "  Frontend:     $FE_STATUS  (port 3000)"
+echo "Installation complete! Cluster Hub will run automatically on startup."
+echo "Backend should be available at: http://localhost:3001"
+echo "Frontend should be available at: http://localhost:3000"
 echo ""
-echo "Open http://$(hostname -I | awk '{print $1}'):3000 in your browser."
-echo ""
-echo "Manage:"
-echo "  Status:    systemctl status $HUB_SERVICE $FRONTEND_SERVICE"
-echo "  Stop:      systemctl stop $HUB_SERVICE $FRONTEND_SERVICE"
-echo "  Uninstall: curl -fsSL https://raw.githubusercontent.com/pedrolemoz/cluster-hub/main/scripts/uninstall.sh | sh"
-echo ""
+echo "To check logs, run:"
+echo "  sudo journalctl -u cluster-hub-backend -f"
+echo "  sudo journalctl -u cluster-hub-frontend -f"

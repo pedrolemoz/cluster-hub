@@ -1,49 +1,27 @@
-#!/bin/sh
-# Cluster Hub Agent uninstaller
-# Usage: curl -fsSL https://domain.com/uninstall.sh | sh
+#!/usr/bin/env bash
 set -e
 
-SERVICE_NAME="cluster-hub-agent"
-INSTALL_DIR="/opt/cluster-hub"
-BINARY="$INSTALL_DIR/cluster-hub-agent"
-SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME.service"
-
-echo ""
-echo "=== Cluster Hub Agent Uninstaller ==="
-echo ""
-
-# Require root
-if [ "$(id -u)" -ne 0 ]; then
-  echo "Error: run as root (sudo sh uninstall.sh)" >&2
+# Run as root to remove systemd services
+if [ "$EUID" -ne 0 ]; then
+  echo "Please run this script as root (e.g. sudo bash uninstall.sh)"
   exit 1
 fi
 
-if command -v systemctl >/dev/null 2>&1; then
-  if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
-    echo "Stopping service..."
-    systemctl stop "$SERVICE_NAME"
-  fi
+echo "Stopping and disabling services..."
+systemctl stop cluster-hub-backend 2>/dev/null || true
+systemctl stop cluster-hub-frontend 2>/dev/null || true
+systemctl disable cluster-hub-backend 2>/dev/null || true
+systemctl disable cluster-hub-frontend 2>/dev/null || true
 
-  if systemctl is-enabled --quiet "$SERVICE_NAME" 2>/dev/null; then
-    echo "Disabling service..."
-    systemctl disable "$SERVICE_NAME"
-  fi
+echo "Removing systemd service files..."
+rm -f /etc/systemd/system/cluster-hub-backend.service
+rm -f /etc/systemd/system/cluster-hub-frontend.service
+systemctl daemon-reload
 
-  if [ -f "$SERVICE_FILE" ]; then
-    echo "Removing service file..."
-    rm -f "$SERVICE_FILE"
-    systemctl daemon-reload
-  fi
+INSTALL_DIR="/opt/cluster-hub-dev"
+if [ -d "$INSTALL_DIR" ]; then
+  echo "Removing installation directory $INSTALL_DIR..."
+  rm -rf "$INSTALL_DIR"
 fi
 
-if [ -f "$BINARY" ]; then
-  echo "Removing binary..."
-  rm -f "$BINARY"
-fi
-
-# Remove install dir only if empty
-rmdir "$INSTALL_DIR" 2>/dev/null && echo "Removed $INSTALL_DIR" || true
-
-echo ""
-echo "Cluster Hub Agent uninstalled."
-echo ""
+echo "Uninstallation complete."
