@@ -231,7 +231,7 @@ export default function MachinePage() {
                 <XAxis dataKey="i" hide />
                 <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
                 <Tooltip
-                  formatter={(v: number | null) => (v == null ? '--' : `${v}%`)}
+                  formatter={(v: unknown) => (v == null ? '--' : `${Number(v)}%`)}
                   labelFormatter={() => ''}
                   contentStyle={{
                     background: 'rgba(15,23,42,0.9)',
@@ -327,7 +327,7 @@ export default function MachinePage() {
                     <XAxis dataKey="i" hide />
                     <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
                     <Tooltip
-                      formatter={(v: number | null) => (v == null ? '--' : `${v}%`)}
+                      formatter={(v: unknown) => (v == null ? '--' : `${Number(v)}%`)}
                       labelFormatter={() => ''}
                       contentStyle={{
                         background: 'rgba(15,23,42,0.9)',
