@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { Plus, Search, Moon, Sun, Zap, Power, ServerCrash } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Plus, Search, Moon, Sun, Zap, Power, ServerCrash, Download, Upload } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,7 +9,7 @@ import { MachineCard } from '@/components/machine-card';
 import { MachineFormDialog } from '@/components/machine-form-dialog';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { getMachines, addMachine, wakeMachine, shutdownMachine } from '@/lib/api';
-import { Machine } from '@/lib/types';
+import { Machine, MachineForm } from '@/lib/types';
 import { toast } from 'sonner';
 
 function ThemeToggle() {
@@ -35,6 +35,7 @@ export default function HomePage() {
   const [wakeAllConfirm, setWakeAllConfirm] = useState(false);
   const [shutdownAllConfirm, setShutdownAllConfirm] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const importRef = useRef<HTMLInputElement>(null);
 
   const fetchMachines = useCallback(async () => {
     try {
@@ -76,6 +77,55 @@ export default function HomePage() {
     setBulkBusy(false);
   }
 
+  function exportMachines() {
+    const data: MachineForm[] = machines.map(({ name, ip, mac, port }) => ({ name, ip, mac, port }));
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'cluster-hub-machines.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function importMachines(file: File) {
+    let entries: unknown;
+    try {
+      entries = JSON.parse(await file.text());
+    } catch {
+      toast.error('Invalid JSON file');
+      return;
+    }
+    if (!Array.isArray(entries)) {
+      toast.error('Expected a JSON array');
+      return;
+    }
+    let ok = 0;
+    let fail = 0;
+    for (const entry of entries) {
+      if (
+        typeof entry !== 'object' || entry === null ||
+        typeof (entry as MachineForm).name !== 'string' ||
+        typeof (entry as MachineForm).ip !== 'string' ||
+        typeof (entry as MachineForm).mac !== 'string' ||
+        typeof (entry as MachineForm).port !== 'number'
+      ) {
+        fail++;
+        continue;
+      }
+      try {
+        await addMachine(entry as MachineForm);
+        ok++;
+      } catch {
+        fail++;
+      }
+    }
+    if (ok > 0) toast.success(`Imported ${ok} machine(s)`);
+    if (fail > 0) toast.error(`${fail} entr${fail === 1 ? 'y' : 'ies'} failed`);
+    if (ok > 0) fetchMachines();
+    if (importRef.current) importRef.current.value = '';
+  }
+
   async function doShutdownAll() {
     setBulkBusy(true);
     let ok = 0;
@@ -104,6 +154,21 @@ export default function HomePage() {
           </div>
 
           <div className="flex items-center gap-2">
+            <input
+              ref={importRef}
+              type="file"
+              accept=".json"
+              className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) importMachines(f); }}
+            />
+            <Button variant="outline" size="sm" onClick={exportMachines} disabled={machines.length === 0} title="Export machines as JSON">
+              <Download className="h-4 w-4" />
+              Export
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => importRef.current?.click()} title="Import machines from JSON">
+              <Upload className="h-4 w-4" />
+              Import
+            </Button>
             <Button onClick={() => setAddOpen(true)} size="sm">
               <Plus className="h-4 w-4" />
               Add PC
