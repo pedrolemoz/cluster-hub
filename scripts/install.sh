@@ -33,7 +33,7 @@ if [ -n "$MISSING" ]; then
   exit 1
 fi
 
-INSTALL_DIR="/opt/cluster-hub-dev"
+INSTALL_DIR="$REAL_HOME/cluster-hub-dev"
 if [ -d "$INSTALL_DIR" ]; then
   echo "Removing existing installation at $INSTALL_DIR..."
   systemctl stop cluster-hub-backend 2>/dev/null || true
@@ -64,7 +64,7 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
+User=${SUDO_USER:-$USER}
 WorkingDirectory=$INSTALL_DIR/backend
 ExecStart=$INSTALL_DIR/backend/main
 Restart=always
@@ -81,7 +81,7 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
+User=${SUDO_USER:-$USER}
 WorkingDirectory=$INSTALL_DIR/frontend
 ExecStart=/usr/bin/env bash -lc "npm start"
 Restart=always
