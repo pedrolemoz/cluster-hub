@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import {
   ArrowLeft,
   Cpu,
@@ -89,10 +89,10 @@ function UsageBar({
   return <Progress value={pct} indicatorClassName={color} className="h-2 mt-2" />;
 }
 
-export default function MachinePage() {
-  const params = useParams();
+function MachinePage() {
+  const searchParams = useSearchParams();
   const router = useRouter();
-  const id = Number(params.id);
+  const id = Number(searchParams.get('id'));
 
   const [machine, setMachine] = useState<Machine | null>(() => {
     if (typeof window === 'undefined') return null;
@@ -372,5 +372,13 @@ export default function MachinePage() {
         </>)}
       </main>
     </div>
+  );
+}
+
+export default function MachinePageWrapper() {
+  return (
+    <Suspense>
+      <MachinePage />
+    </Suspense>
   );
 }

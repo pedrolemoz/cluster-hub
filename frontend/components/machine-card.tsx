@@ -110,7 +110,7 @@ export function MachineCard({ machine: m, onRefresh }: Props) {
         {/* Actions */}
         <div className="flex items-center gap-2 flex-wrap">
           <Link
-            href={`/machines/${m.id}`}
+            href={`/machines?id=${m.id}`}
             className="flex-1"
             onClick={() => sessionStorage.setItem(`machine_${m.id}`, JSON.stringify(m))}
           >
