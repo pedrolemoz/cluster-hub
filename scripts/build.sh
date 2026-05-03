@@ -43,16 +43,9 @@ fi
   npm run build
 )
 
-# Package standalone build
-STANDALONE="$FRONTEND_DIR/.next/standalone"
-cp -r "$FRONTEND_DIR/.next/static" "$STANDALONE/.next/static"
-if [ -d "$FRONTEND_DIR/public" ]; then
-  cp -r "$FRONTEND_DIR/public" "$STANDALONE/public"
-fi
-
-TARBALL="$OUT_DIR/cluster-hub-frontend.tar.gz"
-tar -czf "$TARBALL" -C "$STANDALONE" .
-echo "  OK  cluster-hub-frontend.tar.gz"
+TARBALL="$OUT_DIR/cluster-hub-web.tar.gz"
+tar -czf "$TARBALL" -C "$FRONTEND_DIR/out" .
+echo "  OK  cluster-hub-web.tar.gz"
 
 echo ""
 echo "Artifacts in dist/:"

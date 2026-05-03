@@ -60,18 +60,11 @@ try {
     Pop-Location
 }
 
-# Package standalone build
-$Standalone = Join-Path $FrontendDir ".next\standalone"
-Copy-Item -Recurse -Force (Join-Path $FrontendDir ".next\static") (Join-Path $Standalone ".next\static")
-$PublicDir = Join-Path $FrontendDir "public"
-if (Test-Path $PublicDir) {
-    Copy-Item -Recurse -Force $PublicDir (Join-Path $Standalone "public")
-}
-
-$Tarball = Join-Path $OutDir "cluster-hub-frontend.tar.gz"
-& tar -czf $Tarball -C $Standalone .
+$Tarball = Join-Path $OutDir "cluster-hub-web.tar.gz"
+$OutStaticDir = Join-Path $FrontendDir "out"
+& tar -czf $Tarball -C $OutStaticDir .
 if ($LASTEXITCODE -ne 0) { throw "tar failed" }
-Write-Host "  OK  cluster-hub-frontend.tar.gz"
+Write-Host "  OK  cluster-hub-web.tar.gz"
 
 Write-Host ""
 Write-Host "Artifacts in dist/:"

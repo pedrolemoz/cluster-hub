@@ -19,7 +19,6 @@ if ($missing.Count -gt 0) {
 $installDir = "C:\ClusterHubDev"
 if (Test-Path $installDir) {
     Write-Host "Removing existing installation at $installDir..." -ForegroundColor Yellow
-    # Attempt to kill processes from the existing install to avoid file lock errors
     Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match "ClusterHubDev" } | Invoke-CimMethod -MethodName Terminate | Out-Null
     Start-Sleep -Seconds 2
     Remove-Item -Path $installDir -Recurse -Force
@@ -40,19 +39,17 @@ npm install
 npm run build
 Pop-Location
 
-Write-Host "Creating Scheduled Tasks to run on system startup..." -ForegroundColor Cyan
-# Create the tasks running as SYSTEM so they run even if no user is logged in
+New-Item -ItemType Directory -Force -Path "$installDir\backend\web" | Out-Null
+Copy-Item -Recurse -Force "$installDir\frontend\out\*" "$installDir\backend\web\"
+
+Write-Host "Creating Scheduled Task to run on system startup..." -ForegroundColor Cyan
 $backendCmd = "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -Command `"cd $installDir\backend; .\main.exe`""
-$frontendCmd = "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -Command `"cd $installDir\frontend; npm start`""
 
 schtasks /create /tn "ClusterHubBackend" /tr $backendCmd /sc onstart /ru SYSTEM /f
-schtasks /create /tn "ClusterHubFrontend" /tr $frontendCmd /sc onstart /ru SYSTEM /f
 
-Write-Host "Starting tasks now..." -ForegroundColor Cyan
+Write-Host "Starting task now..." -ForegroundColor Cyan
 schtasks /run /tn "ClusterHubBackend"
-schtasks /run /tn "ClusterHubFrontend"
 
 Write-Host ""
 Write-Host "Installation complete! Cluster Hub will run automatically on startup." -ForegroundColor Green
-Write-Host "Backend is available at: http://localhost:3001" -ForegroundColor Green
-Write-Host "Frontend is available at: http://localhost:3000" -ForegroundColor Green
+Write-Host "Available at: http://localhost:3001" -ForegroundColor Green

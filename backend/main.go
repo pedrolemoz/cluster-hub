@@ -338,6 +338,7 @@ func main() {
 	port := getEnv("PORT", "3001")
 	dbPath := getEnv("DB_PATH", "./cluster.db")
 	bindAddr := getEnv("BIND_ADDR", "0.0.0.0")
+	staticPath := getEnv("STATIC_PATH", "./web")
 
 	var err error
 	db, err = sql.Open("sqlite", dbPath)
@@ -366,6 +367,15 @@ func main() {
 	app.Post("/api/machines/:id/shutdown", shutdownMachine)
 	app.Get("/api/machines/:id/health", getMachineHealth)
 	app.Get("/api/machines/:id/metrics", getMachineMetrics)
+
+	app.Use("/api", func(c *fiber.Ctx) error {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "not found"})
+	})
+
+	app.Static("/", staticPath, fiber.Static{
+		Index:        "index.html",
+		NotFoundFile: "index.html",
+	})
 
 	log.Printf("cluster-hub backend listening on %s:%s", bindAddr, port)
 	log.Fatal(app.Listen(bindAddr + ":" + port))

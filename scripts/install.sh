@@ -21,10 +21,10 @@ fi
 
 echo "Checking dependencies..."
 MISSING=""
-command -v git >/dev/null 2>&1 || MISSING="$MISSING git"
-command -v go >/dev/null 2>&1 || MISSING="$MISSING golang"
+command -v git >/dev/null 2>&1  || MISSING="$MISSING git"
+command -v go >/dev/null 2>&1   || MISSING="$MISSING golang"
 command -v node >/dev/null 2>&1 || MISSING="$MISSING node.js"
-command -v npm >/dev/null 2>&1 || MISSING="$MISSING npm"
+command -v npm >/dev/null 2>&1  || MISSING="$MISSING npm"
 
 if [ -n "$MISSING" ]; then
   echo ""
@@ -37,7 +37,6 @@ INSTALL_DIR="$REAL_HOME/cluster-hub-dev"
 if [ -d "$INSTALL_DIR" ]; then
   echo "Removing existing installation at $INSTALL_DIR..."
   systemctl stop cluster-hub-backend 2>/dev/null || true
-  systemctl stop cluster-hub-frontend 2>/dev/null || true
   rm -rf "$INSTALL_DIR"
 fi
 
@@ -53,13 +52,17 @@ echo "Building Frontend..."
 cd "$INSTALL_DIR/frontend"
 npm install
 npm run build
+mkdir -p "$INSTALL_DIR/backend/web"
+cp -r "$INSTALL_DIR/frontend/out/." "$INSTALL_DIR/backend/web/"
 
-echo "Creating systemd services..."
-# We use bash -lc to ensure profile is loaded so it can find go and npm paths
+echo "Fixing ownership..."
+chown -R "${SUDO_USER:-$USER}":"${SUDO_USER:-$USER}" "$INSTALL_DIR"
+
+echo "Creating systemd service..."
 
 cat <<EOF > /etc/systemd/system/cluster-hub-backend.service
 [Unit]
-Description=Cluster Hub Backend Dev
+Description=Cluster Hub
 After=network.target
 
 [Service]
@@ -74,35 +77,14 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
-cat <<EOF > /etc/systemd/system/cluster-hub-frontend.service
-[Unit]
-Description=Cluster Hub Frontend Dev
-After=network.target
-
-[Service]
-Type=simple
-User=${SUDO_USER:-$USER}
-WorkingDirectory=$INSTALL_DIR/frontend
-ExecStart=/usr/bin/env bash -lc "npm start"
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-echo "Enabling and starting services..."
+echo "Enabling and starting service..."
 systemctl daemon-reload
 systemctl enable cluster-hub-backend
-systemctl enable cluster-hub-frontend
 systemctl start cluster-hub-backend
-systemctl start cluster-hub-frontend
 
 echo ""
 echo "Installation complete! Cluster Hub will run automatically on startup."
-echo "Backend should be available at: http://localhost:3001"
-echo "Frontend should be available at: http://localhost:3000"
+echo "Available at: http://localhost:3001"
 echo ""
 echo "To check logs, run:"
 echo "  sudo journalctl -u cluster-hub-backend -f"
-echo "  sudo journalctl -u cluster-hub-frontend -f"

@@ -1,12 +1,9 @@
 #Requires -RunAsAdministrator
 $ErrorActionPreference = "Continue"
 
-Write-Host "Stopping and removing Scheduled Tasks..." -ForegroundColor Cyan
+Write-Host "Stopping and removing Scheduled Task..." -ForegroundColor Cyan
 schtasks /end /tn "ClusterHubBackend" 2>$null
 schtasks /delete /tn "ClusterHubBackend" /f 2>$null
-
-schtasks /end /tn "ClusterHubFrontend" 2>$null
-schtasks /delete /tn "ClusterHubFrontend" /f 2>$null
 
 $installDir = "C:\ClusterHubDev"
 if (Test-Path $installDir) {

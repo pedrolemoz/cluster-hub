@@ -9,15 +9,12 @@ fi
 
 REAL_HOME=$(getent passwd "${SUDO_USER:-$USER}" | cut -d: -f6)
 
-echo "Stopping and disabling services..."
+echo "Stopping and disabling service..."
 systemctl stop cluster-hub-backend 2>/dev/null || true
-systemctl stop cluster-hub-frontend 2>/dev/null || true
 systemctl disable cluster-hub-backend 2>/dev/null || true
-systemctl disable cluster-hub-frontend 2>/dev/null || true
 
-echo "Removing systemd service files..."
+echo "Removing systemd service file..."
 rm -f /etc/systemd/system/cluster-hub-backend.service
-rm -f /etc/systemd/system/cluster-hub-frontend.service
 systemctl daemon-reload
 
 INSTALL_DIR="$REAL_HOME/cluster-hub-dev"
