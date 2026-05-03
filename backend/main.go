@@ -373,8 +373,11 @@ func main() {
 	})
 
 	app.Static("/", staticPath, fiber.Static{
-		Index:        "index.html",
-		NotFoundFile: "index.html",
+		Index: "index.html",
+	})
+
+	app.Use(func(c *fiber.Ctx) error {
+		return c.SendFile(staticPath + "/index.html")
 	})
 
 	log.Printf("cluster-hub backend listening on %s:%s", bindAddr, port)
