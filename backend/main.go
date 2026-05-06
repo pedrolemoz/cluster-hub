@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -9,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"bufio"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -630,9 +630,9 @@ func statsPoller() {
 	client := &http.Client{Timeout: 5 * time.Second}
 
 	for {
-		rows, err := db.Query(`SELECT id, ip, port FROM machines WHERE is_online=1`)
+		rows, err := db.Query(`SELECT id, ip, port FROM machines`)
 		if err != nil {
-			time.Sleep(15 * time.Minute)
+			time.Sleep(5 * time.Minute)
 			continue
 		}
 		var entries []machineEntry
@@ -645,38 +645,37 @@ func statsPoller() {
 
 		now := time.Now().UTC().Format(time.RFC3339)
 		for _, e := range entries {
-			resp, err := client.Get(fmt.Sprintf("http://%s:%d/metrics", e.ip, e.port))
-			if err != nil {
-				continue
-			}
-			body, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-
-			var m agentMetrics
-			if err := json.Unmarshal(body, &m); err != nil {
-				continue
-			}
-
 			var cpuUsage, cpuTemp, ramUsed, ramTotal, gpuUsage, gpuTemp *float64
-			if m.CPU != nil {
-				cpuUsage = m.CPU.UsagePct
-				cpuTemp = m.CPU.TempC
-			}
-			if m.RAM != nil {
-				ramUsed = m.RAM.UsedMB
-				ramTotal = m.RAM.TotalMB
-			}
-			if m.GPU != nil {
-				gpuUsage = m.GPU.UsagePct
-				gpuTemp = m.GPU.TempC
+
+			resp, err := client.Get(fmt.Sprintf("http://%s:%d/metrics", e.ip, e.port))
+			if err == nil {
+				body, _ := io.ReadAll(resp.Body)
+				resp.Body.Close()
+
+				var m agentMetrics
+				if json.Unmarshal(body, &m) == nil {
+					if m.CPU != nil {
+						cpuUsage = m.CPU.UsagePct
+						cpuTemp = m.CPU.TempC
+					}
+					if m.RAM != nil {
+						ramUsed = m.RAM.UsedMB
+						ramTotal = m.RAM.TotalMB
+					}
+					if m.GPU != nil {
+						gpuUsage = m.GPU.UsagePct
+						gpuTemp = m.GPU.TempC
+					}
+				}
 			}
 
+			// always insert row — null values when offline so chart shows downtime gaps
 			db.Exec(`INSERT INTO machine_stats (machine_id, recorded_at, cpu_usage, cpu_temp, ram_used_mb, ram_total_mb, gpu_usage, gpu_temp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 				e.id, now, cpuUsage, cpuTemp, ramUsed, ramTotal, gpuUsage, gpuTemp)
 		}
 
 		db.Exec(`DELETE FROM machine_stats WHERE recorded_at < datetime('now', '-7 days')`)
-		time.Sleep(15 * time.Minute)
+		time.Sleep(2 * time.Minute)
 	}
 }
 
