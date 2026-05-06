@@ -1,14 +1,15 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Search, Moon, Sun, Zap, Power, ServerCrash, Download, Upload, RefreshCw } from 'lucide-react';
+import { Plus, Search, Moon, Sun, Zap, Power, ServerCrash, Download, Upload, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { MachineCard } from '@/components/machine-card';
 import { MachineFormDialog } from '@/components/machine-form-dialog';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import { getMachines, addMachine, wakeMachine, shutdownMachine, checkVersion, triggerUpdate } from '@/lib/api';
+import { getMachines, addMachine, wakeMachine, shutdownMachine, checkVersion } from '@/lib/api';
 import { Machine, MachineForm } from '@/lib/types';
 import { toast } from 'sonner';
 
@@ -27,6 +28,15 @@ function ThemeToggle() {
   );
 }
 
+type UpdatePhase = 'running' | 'reconnecting' | 'done' | 'error';
+
+function lineClass(line: string): string {
+  if (line.startsWith('ERROR:')) return 'text-red-400';
+  if (line.startsWith('---') || line.includes('restarting') || line.includes('Waiting')) return 'text-yellow-400';
+  if (line.includes('complete') || line.includes('back online')) return 'text-emerald-300 font-semibold';
+  return 'text-green-400';
+}
+
 export default function HomePage() {
   const [machines, setMachines] = useState<Machine[]>([]);
   const [search, setSearch] = useState('');
@@ -37,8 +47,11 @@ export default function HomePage() {
   const [bulkBusy, setBulkBusy] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [updateConfirm, setUpdateConfirm] = useState(false);
-  const [updateBusy, setUpdateBusy] = useState(false);
+  const [updateTerminalOpen, setUpdateTerminalOpen] = useState(false);
+  const [updateLines, setUpdateLines] = useState<string[]>([]);
+  const [updatePhase, setUpdatePhase] = useState<UpdatePhase>('running');
   const importRef = useRef<HTMLInputElement>(null);
+  const terminalRef = useRef<HTMLDivElement>(null);
 
   const fetchMachines = useCallback(async () => {
     try {
@@ -63,7 +76,7 @@ export default function HomePage() {
         const v = await checkVersion();
         setUpdateAvailable(v.update_available);
       } catch {
-        // ignore — version check is best-effort
+        // best-effort
       }
     };
     checkForUpdate();
@@ -71,17 +84,58 @@ export default function HomePage() {
     return () => clearInterval(iv);
   }, []);
 
-  async function doUpdate() {
-    setUpdateBusy(true);
-    try {
-      await triggerUpdate();
-      toast.success('Update started. The server will restart — refresh the page once it\'s back online.', { duration: 10000 });
-      setUpdateConfirm(false);
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : 'Update failed');
-    } finally {
-      setUpdateBusy(false);
+  // Auto-scroll terminal
+  useEffect(() => {
+    if (terminalRef.current) {
+      terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
     }
+  }, [updateLines]);
+
+  // SSE connection when terminal opens
+  useEffect(() => {
+    if (!updateTerminalOpen) return;
+
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    const es = new EventSource('/api/update/stream');
+
+    es.onmessage = (e: MessageEvent) => {
+      setUpdateLines(prev => [...prev, e.data as string]);
+    };
+
+    es.onerror = () => {
+      es.close();
+      setUpdatePhase('reconnecting');
+      setUpdateLines(prev => [
+        ...prev,
+        '--- Connection lost: server is restarting ---',
+        'Waiting for server to come back online...',
+      ]);
+
+      pollTimer = setInterval(async () => {
+        try {
+          await getMachines();
+          if (pollTimer) clearInterval(pollTimer);
+          setUpdatePhase('done');
+          setUpdateAvailable(false);
+          setUpdateLines(prev => [...prev, 'Server is back online — update complete!']);
+          fetchMachines();
+        } catch {
+          // still restarting
+        }
+      }, 3000);
+    };
+
+    return () => {
+      es.close();
+      if (pollTimer) clearInterval(pollTimer);
+    };
+  }, [updateTerminalOpen, fetchMachines]);
+
+  function doUpdate() {
+    setUpdateConfirm(false);
+    setUpdateLines([]);
+    setUpdatePhase('running');
+    setUpdateTerminalOpen(true);
   }
 
   const filtered = machines.filter(
@@ -315,11 +369,62 @@ export default function HomePage() {
         open={updateConfirm}
         onOpenChange={setUpdateConfirm}
         title="Update Cluster Hub?"
-        description="This will uninstall the current version, install the latest from GitHub, and restore your machine config. The server will restart — the page will go offline briefly."
+        description="This will fetch and run the latest install scripts from GitHub. Your machine config will be backed up and restored automatically. The server will restart."
         confirmLabel="Update Now"
         onConfirm={doUpdate}
-        loading={updateBusy}
       />
+
+      {/* Update terminal dialog */}
+      <Dialog
+        open={updateTerminalOpen}
+        onOpenChange={(open) => {
+          if (!open && updatePhase !== 'running' && updatePhase !== 'reconnecting') {
+            setUpdateTerminalOpen(false);
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl gap-3">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {updatePhase === 'done'
+                ? <><CheckCircle2 className="h-4 w-4 text-emerald-500" /> Update Complete</>
+                : <><RefreshCw className={`h-4 w-4 ${updatePhase !== 'error' ? 'animate-spin' : ''}`} /> Updating Cluster Hub</>
+              }
+            </DialogTitle>
+          </DialogHeader>
+
+          <div
+            ref={terminalRef}
+            className="bg-zinc-950 rounded-lg border border-zinc-800 font-mono text-xs p-4 h-72 overflow-y-auto space-y-0.5"
+          >
+            {updateLines.map((line, i) => (
+              <div key={i} className={lineClass(line)}>
+                <span className="select-none text-zinc-600 mr-2">{'>'}</span>{line}
+              </div>
+            ))}
+            {updatePhase === 'reconnecting' && (
+              <div className="flex items-center gap-2 text-yellow-400 pt-1">
+                <RefreshCw className="h-3 w-3 animate-spin shrink-0" />
+                <span>Polling every 3 s...</span>
+              </div>
+            )}
+            {updateLines.length === 0 && (
+              <div className="text-zinc-600">Connecting...</div>
+            )}
+          </div>
+
+          {updatePhase === 'done' && (
+            <Button onClick={() => { setUpdateTerminalOpen(false); window.location.reload(); }}>
+              Reload Page
+            </Button>
+          )}
+          {updatePhase === 'error' && (
+            <Button variant="outline" onClick={() => setUpdateTerminalOpen(false)}>
+              Close
+            </Button>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

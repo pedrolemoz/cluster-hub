@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"bufio"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -376,91 +377,84 @@ func exportMachinesJSON() ([]byte, error) {
 	return json.MarshalIndent(machines, "", "  ")
 }
 
-func triggerUpdate(c *fiber.Ctx) error {
-	if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
-		return c.Status(400).JSON(fiber.Map{"error": "update not supported on " + runtime.GOOS})
-	}
+const (
+	rawBaseURL     = "https://raw.githubusercontent.com/pedrolemoz/cluster-hub/main"
+	uninstallShURL = rawBaseURL + "/scripts/uninstall.sh"
+	installShURL   = rawBaseURL + "/scripts/install.sh"
+)
 
-	data, err := exportMachinesJSON()
+func downloadFile(url, dest string) error {
+	resp, err := http.Get(url)
 	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		return err
 	}
-
-	tmpDir := filepath.Join(os.TempDir(), "cluster-hub-update")
-	if err := os.MkdirAll(tmpDir, 0755); err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "cannot create temp dir: " + err.Error()})
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("HTTP %d fetching %s", resp.StatusCode, url)
 	}
-
-	if err := os.WriteFile(filepath.Join(tmpDir, "machines.json"), data, 0644); err != nil {
-		os.RemoveAll(tmpDir)
-		return c.Status(500).JSON(fiber.Map{"error": "cannot write backup: " + err.Error()})
+	f, err := os.Create(dest)
+	if err != nil {
+		return err
 	}
-
-	var launchErr error
-	if runtime.GOOS == "windows" {
-		launchErr = launchUpdateWindows(tmpDir)
-	} else {
-		launchErr = launchUpdateLinux(tmpDir)
-	}
-
-	if launchErr != nil {
-		os.RemoveAll(tmpDir)
-		return c.Status(500).JSON(fiber.Map{"error": "failed to start update: " + launchErr.Error()})
-	}
-
-	return c.JSON(fiber.Map{"status": "updating"})
+	defer f.Close()
+	_, err = io.Copy(f, resp.Body)
+	return err
 }
 
-func launchUpdateLinux(tmpDir string) error {
-	script := fmt.Sprintf(
-		"nohup sudo -n /usr/local/bin/cluster-hub-update %s > /tmp/cluster-hub-update.log 2>&1 &",
-		tmpDir,
-	)
-	return exec.Command("bash", "-c", script).Run()
+func importPendingBackup() {
+	backupFile := filepath.Join(os.TempDir(), "cluster-hub-update", "machines.json")
+	data, err := os.ReadFile(backupFile)
+	if err != nil {
+		return
+	}
+	var entries []struct {
+		Name      string `json:"name"`
+		IP        string `json:"ip"`
+		MAC       string `json:"mac"`
+		Port      int    `json:"port"`
+		UseWoWLAN bool   `json:"use_wowlan"`
+	}
+	if err := json.Unmarshal(data, &entries); err != nil {
+		log.Printf("backup import: parse error: %v", err)
+		os.Remove(backupFile)
+		return
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	ok := 0
+	for _, e := range entries {
+		if e.Port == 0 {
+			e.Port = 8080
+		}
+		useWoWLAN := 0
+		if e.UseWoWLAN {
+			useWoWLAN = 1
+		}
+		_, err := db.Exec(
+			`INSERT INTO machines (name, uuid, ip, mac, port, use_wowlan, is_online, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+			e.Name, uuid.New().String(), e.IP, e.MAC, e.Port, useWoWLAN, now, now,
+		)
+		if err == nil {
+			ok++
+		}
+	}
+	os.Remove(backupFile)
+	os.Remove(filepath.Dir(backupFile))
+	if ok > 0 {
+		log.Printf("auto-import: restored %d machine(s) from update backup", ok)
+	}
 }
 
-const windowsUpdateScript = `
-$BackupDir = $args[0]
-Start-Sleep -Seconds 2
+const windowsUpdateScript = `Start-Sleep -Seconds 2
 
-function Download-And-Run([string]$Url) {
+function Fetch-Run([string]$Url) {
     $tmp = [System.IO.Path]::GetTempFileName() + ".ps1"
     Invoke-WebRequest -Uri $Url -OutFile $tmp -UseBasicParsing
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $tmp
     Remove-Item $tmp -ErrorAction SilentlyContinue
 }
 
-Write-Host "[update] Uninstalling..."
-Download-And-Run "https://raw.githubusercontent.com/pedrolemoz/cluster-hub/main/scripts/uninstall.ps1"
-
-Write-Host "[update] Installing..."
-Download-And-Run "https://raw.githubusercontent.com/pedrolemoz/cluster-hub/main/scripts/install.ps1"
-
-Write-Host "[update] Waiting for service..."
-$tries = 0
-$ready = $false
-while (-not $ready) {
-    Start-Sleep -Seconds 3
-    $tries++
-    if ($tries -gt 40) {
-        Remove-Item -Recurse -Force $BackupDir -ErrorAction SilentlyContinue
-        exit 1
-    }
-    try {
-        $r = Invoke-WebRequest -Uri "http://localhost:3001/api/machines" -UseBasicParsing -TimeoutSec 3
-        $ready = ($r.StatusCode -eq 200)
-    } catch { $ready = $false }
-}
-
-$backupFile = Join-Path $BackupDir "machines.json"
-if (Test-Path $backupFile) {
-    Write-Host "[update] Restoring machines..."
-    $body = Get-Content $backupFile -Raw
-    Invoke-RestMethod -Uri "http://localhost:3001/api/machines/import" -Method POST -Body $body -ContentType "application/json" | Out-Null
-}
-
-Remove-Item -Recurse -Force $BackupDir -ErrorAction SilentlyContinue
-Write-Host "[update] Done."
+Fetch-Run "https://raw.githubusercontent.com/pedrolemoz/cluster-hub/main/scripts/uninstall.ps1"
+Fetch-Run "https://raw.githubusercontent.com/pedrolemoz/cluster-hub/main/scripts/install.ps1"
 `
 
 func launchUpdateWindows(tmpDir string) error {
@@ -468,12 +462,83 @@ func launchUpdateWindows(tmpDir string) error {
 	if err := os.WriteFile(scriptPath, []byte(windowsUpdateScript), 0644); err != nil {
 		return err
 	}
-	// cmd /c start /b runs detached — no window, not a child of this process
 	return exec.Command(
 		"cmd", "/c", "start", "/b", "powershell",
 		"-NoProfile", "-ExecutionPolicy", "Bypass",
-		"-File", scriptPath, tmpDir,
+		"-File", scriptPath,
 	).Run()
+}
+
+func streamUpdate(c *fiber.Ctx) error {
+	c.Set("Content-Type", "text/event-stream")
+	c.Set("Cache-Control", "no-cache")
+	c.Set("Connection", "keep-alive")
+	c.Set("X-Accel-Buffering", "no")
+
+	c.Context().SetBodyStreamWriter(func(w *bufio.Writer) {
+		send := func(msg string) {
+			fmt.Fprintf(w, "data: %s\n\n", msg)
+			w.Flush()
+		}
+
+		if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
+			send("ERROR: update not supported on " + runtime.GOOS)
+			return
+		}
+
+		send("Exporting machine config...")
+		data, err := exportMachinesJSON()
+		if err != nil {
+			send("ERROR: export failed: " + err.Error())
+			return
+		}
+
+		tmpDir := filepath.Join(os.TempDir(), "cluster-hub-update")
+		if err := os.MkdirAll(tmpDir, 0755); err != nil {
+			send("ERROR: cannot create temp dir: " + err.Error())
+			return
+		}
+
+		if err := os.WriteFile(filepath.Join(tmpDir, "machines.json"), data, 0644); err != nil {
+			os.RemoveAll(tmpDir)
+			send("ERROR: cannot write backup: " + err.Error())
+			return
+		}
+		send("Machine config backed up.")
+
+		if runtime.GOOS == "linux" {
+			send("Downloading uninstall script...")
+			if err := downloadFile(uninstallShURL, "/tmp/cluster-hub-uninstall.sh"); err != nil {
+				os.RemoveAll(tmpDir)
+				send("ERROR: " + err.Error())
+				return
+			}
+			send("Downloading install script...")
+			if err := downloadFile(installShURL, "/tmp/cluster-hub-install.sh"); err != nil {
+				os.RemoveAll(tmpDir)
+				send("ERROR: " + err.Error())
+				return
+			}
+			os.Chmod("/tmp/cluster-hub-uninstall.sh", 0755)
+			os.Chmod("/tmp/cluster-hub-install.sh", 0755)
+
+			logFile := filepath.Join(tmpDir, "update.log")
+			detachCmd := fmt.Sprintf(
+				`nohup bash -c 'sudo -n bash /tmp/cluster-hub-uninstall.sh >> "%s" 2>&1 && sudo -n bash /tmp/cluster-hub-install.sh >> "%s" 2>&1; rm -f /tmp/cluster-hub-uninstall.sh /tmp/cluster-hub-install.sh' > /dev/null 2>&1 &`,
+				logFile, logFile,
+			)
+			send("Launching update — server will restart now...")
+			exec.Command("bash", "-c", detachCmd).Run()
+		} else {
+			send("Launching update — server will restart now...")
+			if err := launchUpdateWindows(tmpDir); err != nil {
+				os.RemoveAll(tmpDir)
+				send("ERROR: " + err.Error())
+			}
+		}
+	})
+
+	return nil
 }
 
 func importMachinesAPI(c *fiber.Ctx) error {
@@ -575,6 +640,7 @@ func main() {
 	if err := initDB(); err != nil {
 		log.Fatal(err)
 	}
+	importPendingBackup()
 
 	go healthPoller()
 
@@ -584,7 +650,7 @@ func main() {
 	app.Use(cors.New())
 
 	app.Get("/api/version", getVersion)
-	app.Post("/api/update", triggerUpdate)
+	app.Get("/api/update/stream", streamUpdate)
 	app.Get("/api/machines", getMachines)
 	app.Post("/api/machines", addMachine)
 	app.Post("/api/machines/import", importMachinesAPI)

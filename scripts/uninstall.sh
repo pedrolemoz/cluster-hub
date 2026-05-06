@@ -23,8 +23,7 @@ if [ -d "$INSTALL_DIR" ]; then
   rm -rf "$INSTALL_DIR"
 fi
 
-echo "Removing update script and sudoers rule..."
-rm -f /usr/local/bin/cluster-hub-update
+echo "Removing sudoers rule..."
 rm -f /etc/sudoers.d/cluster-hub
 
 echo "Uninstallation complete."

@@ -42,6 +42,3 @@ export const getMachineMetrics = (id: number) =>
 
 export const checkVersion = () =>
   req<{ current: string; latest: string; update_available: boolean }>('/api/version');
-
-export const triggerUpdate = () =>
-  req<{ status: string }>('/api/update', { method: 'POST' });
