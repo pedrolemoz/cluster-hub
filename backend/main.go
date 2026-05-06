@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -204,14 +203,6 @@ func deleteMachine(c *fiber.Ctx) error {
 	return c.SendStatus(204)
 }
 
-func subnetBroadcast(ip string) string {
-	parts := strings.Split(ip, ".")
-	if len(parts) != 4 {
-		return "255.255.255.255"
-	}
-	return parts[0] + "." + parts[1] + "." + parts[2] + ".255"
-}
-
 func sendWOL(mac, broadcast string) error {
 	hw, err := net.ParseMAC(mac)
 	if err != nil {
@@ -247,7 +238,7 @@ func wakeMachine(c *fiber.Ctx) error {
 	}
 	broadcast := "255.255.255.255"
 	if useWoWLAN == 1 {
-		broadcast = subnetBroadcast(ip)
+		broadcast = ip
 	}
 	if err := sendWOL(mac, broadcast); err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
