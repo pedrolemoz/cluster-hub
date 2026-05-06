@@ -6,7 +6,9 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:api.github.com)",
       "Bash(grep -E \"\\\\.\\(md|txt|json\\)$\")",
-      "Bash(xargs grep *)"
+      "Bash(xargs grep *)",
+      "Bash(go build *)",
+      "Bash(npx tsc *)"
     ]
   }
 }

@@ -22,7 +22,7 @@ interface Props {
 }
 
 const DEFAULT_PORT = 8732;
-const empty: MachineForm = { name: '', ip: '', mac: '', port: DEFAULT_PORT };
+const empty: MachineForm = { name: '', ip: '', mac: '', port: DEFAULT_PORT, use_wowlan: false };
 
 function validateIP(ip: string): string | null {
   const trimmed = ip.trim();
@@ -70,9 +70,8 @@ export function MachineFormDialog({ open, onOpenChange, initial, title, onSubmit
   }, [open, initial]);
 
   const set = (k: keyof MachineForm) => (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = k === 'port' ? Number(e.target.value) : e.target.value;
+    const val = k === 'port' ? Number(e.target.value) : k === 'use_wowlan' ? e.target.checked : e.target.value;
     setForm((f) => ({ ...f, [k]: val }));
-    // Clear field error on change
     setErrors((prev) => ({ ...prev, [k]: undefined }));
   };
 
@@ -163,6 +162,20 @@ export function MachineFormDialog({ open, onOpenChange, initial, title, onSubmit
               className={errors.port ? 'border-destructive focus-visible:ring-destructive' : ''}
             />
             {errors.port && <p className="text-xs text-destructive">{errors.port}</p>}
+          </div>
+
+          <div className="flex items-center gap-3 py-1">
+            <input
+              id="mfd-wowlan"
+              type="checkbox"
+              checked={form.use_wowlan}
+              onChange={set('use_wowlan')}
+              className="h-4 w-4 rounded border-input accent-primary cursor-pointer"
+            />
+            <div>
+              <Label htmlFor="mfd-wowlan" className="cursor-pointer">Wake on WiFi (WoWLAN)</Label>
+              <p className="text-xs text-muted-foreground">Send magic packet to subnet broadcast instead of 255.255.255.255</p>
+            </div>
           </div>
 
           {submitError && <p className="text-sm text-destructive">{submitError}</p>}

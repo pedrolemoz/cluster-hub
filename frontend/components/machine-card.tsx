@@ -42,10 +42,11 @@ export function MachineCard({ machine: m, onRefresh }: Props) {
     setBusy(true);
     try {
       await wakeMachine(m.id);
-      toast.success(`Wake-on-LAN sent to ${m.name}`);
+      const label = m.use_wowlan ? 'Wake-on-WiFi' : 'Wake-on-LAN';
+      toast.success(`${label} sent to ${m.name}`);
       setConfirmWake(false);
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : 'Failed to send WOL');
+      toast.error(e instanceof Error ? e.message : 'Failed to send wake packet');
     } finally {
       setBusy(false);
     }
@@ -172,7 +173,7 @@ export function MachineCard({ machine: m, onRefresh }: Props) {
         open={confirmWake}
         onOpenChange={setConfirmWake}
         title="Wake PC?"
-        description={`Send Wake-on-LAN packet to ${m.name}?`}
+        description={`Send ${m.use_wowlan ? 'Wake-on-WiFi' : 'Wake-on-LAN'} packet to ${m.name}?`}
         confirmLabel="Wake"
         onConfirm={doWake}
         loading={busy}
@@ -190,7 +191,7 @@ export function MachineCard({ machine: m, onRefresh }: Props) {
       <MachineFormDialog
         open={editOpen}
         onOpenChange={setEditOpen}
-        initial={{ name: m.name, ip: m.ip, mac: m.mac, port: m.port }}
+        initial={{ name: m.name, ip: m.ip, mac: m.mac, port: m.port, use_wowlan: m.use_wowlan }}
         title="Edit Machine"
         onSubmit={doEdit}
       />

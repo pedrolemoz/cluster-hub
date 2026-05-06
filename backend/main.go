@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -31,6 +32,7 @@ type Machine struct {
 	IP         string  `json:"ip"`
 	MAC        string  `json:"mac"`
 	Port       int     `json:"port"`
+	UseWoWLAN  bool    `json:"use_wowlan"`
 	IsOnline   bool    `json:"is_online"`
 	LastSeenAt *string `json:"last_seen_at"`
 	CreatedAt  string  `json:"created_at"`
@@ -52,30 +54,37 @@ func getEnv(key, def string) string {
 func initDB() error {
 	_, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS machines (
-			id          INTEGER PRIMARY KEY AUTOINCREMENT,
-			name        TEXT    NOT NULL,
-			uuid        TEXT    UNIQUE NOT NULL,
-			ip          TEXT    NOT NULL,
-			mac         TEXT    NOT NULL,
-			port        INTEGER NOT NULL DEFAULT 8080,
-			is_online   INTEGER NOT NULL DEFAULT 0,
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			name         TEXT    NOT NULL,
+			uuid         TEXT    UNIQUE NOT NULL,
+			ip           TEXT    NOT NULL,
+			mac          TEXT    NOT NULL,
+			port         INTEGER NOT NULL DEFAULT 8080,
+			use_wowlan   INTEGER NOT NULL DEFAULT 0,
+			is_online    INTEGER NOT NULL DEFAULT 0,
 			last_seen_at TEXT,
-			created_at  TEXT    NOT NULL,
-			updated_at  TEXT    NOT NULL
+			created_at   TEXT    NOT NULL,
+			updated_at   TEXT    NOT NULL
 		)
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+	// migrate existing DBs that lack the column
+	db.Exec(`ALTER TABLE machines ADD COLUMN use_wowlan INTEGER NOT NULL DEFAULT 0`)
+	return nil
 }
 
 func scanMachine(row rowScanner) (Machine, error) {
 	var m Machine
-	var isOnline int
+	var useWoWLAN, isOnline int
 	var lastSeen sql.NullString
-	err := row.Scan(&m.ID, &m.Name, &m.UUID, &m.IP, &m.MAC, &m.Port,
+	err := row.Scan(&m.ID, &m.Name, &m.UUID, &m.IP, &m.MAC, &m.Port, &useWoWLAN,
 		&isOnline, &lastSeen, &m.CreatedAt, &m.UpdatedAt)
 	if err != nil {
 		return m, err
 	}
+	m.UseWoWLAN = useWoWLAN == 1
 	m.IsOnline = isOnline == 1
 	if lastSeen.Valid {
 		m.LastSeenAt = &lastSeen.String
@@ -87,7 +96,7 @@ func scanMachine(row rowScanner) (Machine, error) {
 	return m, nil
 }
 
-const machineSelect = `SELECT id, name, uuid, ip, mac, port, is_online, last_seen_at, created_at, updated_at FROM machines`
+const machineSelect = `SELECT id, name, uuid, ip, mac, port, use_wowlan, is_online, last_seen_at, created_at, updated_at FROM machines`
 
 func getMachines(c *fiber.Ctx) error {
 	rows, err := db.Query(machineSelect + ` ORDER BY is_online DESC, name ASC`)
@@ -109,10 +118,11 @@ func getMachines(c *fiber.Ctx) error {
 
 func addMachine(c *fiber.Ctx) error {
 	var body struct {
-		Name string `json:"name"`
-		IP   string `json:"ip"`
-		MAC  string `json:"mac"`
-		Port int    `json:"port"`
+		Name      string `json:"name"`
+		IP        string `json:"ip"`
+		MAC       string `json:"mac"`
+		Port      int    `json:"port"`
+		UseWoWLAN bool   `json:"use_wowlan"`
 	}
 	if err := c.BodyParser(&body); err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid body"})
@@ -123,10 +133,14 @@ func addMachine(c *fiber.Ctx) error {
 	if body.Port == 0 {
 		body.Port = 8080
 	}
+	useWoWLAN := 0
+	if body.UseWoWLAN {
+		useWoWLAN = 1
+	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	result, err := db.Exec(
-		`INSERT INTO machines (name, uuid, ip, mac, port, is_online, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
-		body.Name, uuid.New().String(), body.IP, body.MAC, body.Port, now, now,
+		`INSERT INTO machines (name, uuid, ip, mac, port, use_wowlan, is_online, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+		body.Name, uuid.New().String(), body.IP, body.MAC, body.Port, useWoWLAN, now, now,
 	)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
@@ -146,10 +160,11 @@ func editMachine(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid id"})
 	}
 	var body struct {
-		Name string `json:"name"`
-		IP   string `json:"ip"`
-		MAC  string `json:"mac"`
-		Port int    `json:"port"`
+		Name      string `json:"name"`
+		IP        string `json:"ip"`
+		MAC       string `json:"mac"`
+		Port      int    `json:"port"`
+		UseWoWLAN bool   `json:"use_wowlan"`
 	}
 	if err := c.BodyParser(&body); err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid body"})
@@ -157,10 +172,14 @@ func editMachine(c *fiber.Ctx) error {
 	if body.Port == 0 {
 		body.Port = 8080
 	}
+	useWoWLAN := 0
+	if body.UseWoWLAN {
+		useWoWLAN = 1
+	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err = db.Exec(
-		`UPDATE machines SET name=?, ip=?, mac=?, port=?, updated_at=? WHERE id=?`,
-		body.Name, body.IP, body.MAC, body.Port, now, id,
+		`UPDATE machines SET name=?, ip=?, mac=?, port=?, use_wowlan=?, updated_at=? WHERE id=?`,
+		body.Name, body.IP, body.MAC, body.Port, useWoWLAN, now, id,
 	)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
@@ -185,7 +204,15 @@ func deleteMachine(c *fiber.Ctx) error {
 	return c.SendStatus(204)
 }
 
-func sendWOL(mac string) error {
+func subnetBroadcast(ip string) string {
+	parts := strings.Split(ip, ".")
+	if len(parts) != 4 {
+		return "255.255.255.255"
+	}
+	return parts[0] + "." + parts[1] + "." + parts[2] + ".255"
+}
+
+func sendWOL(mac, broadcast string) error {
 	hw, err := net.ParseMAC(mac)
 	if err != nil {
 		return fmt.Errorf("invalid MAC: %w", err)
@@ -197,7 +224,7 @@ func sendWOL(mac string) error {
 	for i := 1; i <= 16; i++ {
 		copy(packet[i*6:], hw)
 	}
-	conn, err := net.Dial("udp4", "255.255.255.255:9")
+	conn, err := net.Dial("udp4", broadcast+":9")
 	if err != nil {
 		return err
 	}
@@ -211,16 +238,25 @@ func wakeMachine(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid id"})
 	}
-	var mac string
-	if err := db.QueryRow(`SELECT mac FROM machines WHERE id=?`, id).Scan(&mac); err == sql.ErrNoRows {
+	var mac, ip string
+	var useWoWLAN int
+	if err := db.QueryRow(`SELECT mac, ip, use_wowlan FROM machines WHERE id=?`, id).Scan(&mac, &ip, &useWoWLAN); err == sql.ErrNoRows {
 		return c.Status(404).JSON(fiber.Map{"error": "not found"})
 	} else if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
-	if err := sendWOL(mac); err != nil {
+	broadcast := "255.255.255.255"
+	if useWoWLAN == 1 {
+		broadcast = subnetBroadcast(ip)
+	}
+	if err := sendWOL(mac, broadcast); err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
-	return c.JSON(fiber.Map{"status": "wol_sent"})
+	mode := "wol_sent"
+	if useWoWLAN == 1 {
+		mode = "wowlan_sent"
+	}
+	return c.JSON(fiber.Map{"status": mode})
 }
 
 func shutdownMachine(c *fiber.Ctx) error {

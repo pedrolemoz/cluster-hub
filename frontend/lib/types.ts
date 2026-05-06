@@ -7,6 +7,7 @@ export interface Machine {
   ip: string;
   mac: string;
   port: number;
+  use_wowlan: boolean;
   is_online: boolean;
   last_seen_at: string | null;
   created_at: string;
@@ -19,6 +20,7 @@ export interface MachineForm {
   ip: string;
   mac: string;
   port: number;
+  use_wowlan: boolean;
 }
 
 export const MetricsSchema = z.object({
