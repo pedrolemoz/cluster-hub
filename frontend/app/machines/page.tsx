@@ -164,27 +164,27 @@ function MachinePage() {
     <div className="flex flex-col min-h-screen">
       {/* Topbar */}
       <header className="sticky top-0 z-40 border-b border-black/10 dark:border-white/10 bg-white/80 dark:bg-slate-950/80 backdrop-blur-xl">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => router.push('/')}>
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-2 min-w-0">
+          <Button variant="ghost" size="icon" className="shrink-0" onClick={() => router.push('/')}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div className="flex items-center gap-2.5">
-            <div className="p-1.5 rounded-lg bg-primary/20">
-              <ServerCrash className="h-5 w-5 text-primary" />
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <div className="p-1.5 rounded-lg bg-primary/20 shrink-0">
+              <ServerCrash className="h-4 w-4 text-primary" />
             </div>
-            <span className="font-bold text-lg">
+            <span className="font-bold text-base sm:text-lg truncate">
               {machine?.name ?? 'Loading…'}
             </span>
           </div>
           {machine && (
-            <Badge variant={machine.is_online ? 'online' : 'offline'} className="ml-1">
+            <Badge variant={machine.is_online ? 'online' : 'offline'} className="shrink-0">
               {machine.is_online ? 'Online' : 'Offline'}
             </Badge>
           )}
         </div>
       </header>
 
-      <main className="flex-1 max-w-5xl mx-auto w-full px-4 sm:px-6 py-6 space-y-4">
+      <main className="flex-1 max-w-5xl mx-auto w-full px-4 sm:px-6 py-6 pb-safe space-y-4">
         {offline ? (
           <div className="glass rounded-2xl p-16 flex flex-col items-center gap-4 text-muted-foreground">
             <WifiOff className="h-12 w-12 opacity-40" />

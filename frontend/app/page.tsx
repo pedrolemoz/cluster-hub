@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Search, Moon, Sun, Zap, Power, ServerCrash, Download, Upload, RefreshCw, CheckCircle2 } from 'lucide-react';
+import { Plus, Search, Moon, Sun, Zap, Power, ServerCrash, Download, Upload, RefreshCw, CheckCircle2, Menu, X } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -50,6 +50,7 @@ export default function HomePage() {
   const [updateTerminalOpen, setUpdateTerminalOpen] = useState(false);
   const [updateLines, setUpdateLines] = useState<string[]>([]);
   const [updatePhase, setUpdatePhase] = useState<UpdatePhase>('running');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const importRef = useRef<HTMLInputElement>(null);
   const terminalRef = useRef<HTMLDivElement>(null);
 
@@ -230,21 +231,24 @@ export default function HomePage() {
       {/* Topbar */}
       <header className="sticky top-0 z-40 border-b border-black/10 dark:border-white/10 bg-white/80 dark:bg-slate-950/80 backdrop-blur-xl">
         <div className="max-w-[1800px] mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2.5">
-            <div className="p-1.5 rounded-lg bg-primary/20">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="p-1.5 rounded-lg bg-primary/20 shrink-0">
               <ServerCrash className="h-5 w-5 text-primary" />
             </div>
-            <span className="font-bold text-lg tracking-tight">Cluster Hub</span>
+            <span className="font-bold text-lg tracking-tight truncate">Cluster Hub</span>
           </div>
 
-          <div className="flex items-center gap-2">
-            <input
-              ref={importRef}
-              type="file"
-              accept=".json"
-              className="hidden"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) importMachines(f); }}
-            />
+          {/* Hidden file input shared between desktop + mobile */}
+          <input
+            ref={importRef}
+            type="file"
+            accept=".json"
+            className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) importMachines(f); }}
+          />
+
+          {/* Desktop nav */}
+          <div className="hidden sm:flex items-center gap-2 shrink-0">
             <Button
               variant="outline"
               size="sm"
@@ -270,35 +274,85 @@ export default function HomePage() {
             </Button>
             <ThemeToggle />
           </div>
+
+          {/* Mobile nav */}
+          <div className="flex sm:hidden items-center gap-1 shrink-0">
+            <Button onClick={() => setAddOpen(true)} size="sm" className="h-9 px-3">
+              <Plus className="h-4 w-4" />
+              <span className="sr-only">Add PC</span>
+            </Button>
+            <ThemeToggle />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9"
+              onClick={() => setMobileMenuOpen((o) => !o)}
+              aria-label="Menu"
+            >
+              {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </Button>
+          </div>
         </div>
+
+        {/* Mobile dropdown menu */}
+        {mobileMenuOpen && (
+          <div className="sm:hidden border-t border-black/10 dark:border-white/10 bg-white/95 dark:bg-slate-950/95 backdrop-blur-xl px-4 py-3 space-y-2">
+            <Button
+              variant="outline"
+              className={`w-full justify-start gap-3 h-11 ${updateAvailable ? 'border-orange-400 text-orange-500' : ''}`}
+              onClick={() => { setUpdateConfirm(true); setMobileMenuOpen(false); }}
+            >
+              <RefreshCw className="h-4 w-4 shrink-0" />
+              Update Cluster Hub
+              {updateAvailable && <span className="ml-auto h-2.5 w-2.5 rounded-full bg-orange-500 shrink-0" />}
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full justify-start gap-3 h-11"
+              disabled={machines.length === 0}
+              onClick={() => { exportMachines(); setMobileMenuOpen(false); }}
+            >
+              <Download className="h-4 w-4 shrink-0" />
+              Export Machines
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full justify-start gap-3 h-11"
+              onClick={() => { importRef.current?.click(); setMobileMenuOpen(false); }}
+            >
+              <Upload className="h-4 w-4 shrink-0" />
+              Import Machines
+            </Button>
+          </div>
+        )}
       </header>
 
       {/* Main */}
-      <main className="flex-1 max-w-[1800px] mx-auto w-full px-4 sm:px-6 py-6 space-y-6">
+      <main className="flex-1 max-w-[1800px] mx-auto w-full px-4 sm:px-6 py-6 pb-safe space-y-6">
         {/* Toolbar */}
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="relative flex-1 min-w-48 max-w-sm">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3">
+          <div className="relative w-full sm:flex-1 sm:min-w-48 sm:max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
             <Input
               placeholder="Search by name or IP…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-9"
+              className="pl-9 h-10"
             />
           </div>
 
-          <div className="flex items-center gap-2 ml-auto">
-            <span className="text-xs text-muted-foreground">
+          <div className="flex items-center gap-2 sm:ml-auto flex-wrap">
+            <span className="text-xs text-muted-foreground shrink-0">
               {onlineMachines.length} online · {offlineMachines.length} offline
             </span>
             {offlineMachines.length > 0 && (
-              <Button variant="outline" size="sm" onClick={() => setWakeAllConfirm(true)}>
+              <Button variant="outline" size="sm" onClick={() => setWakeAllConfirm(true)} className="flex-1 sm:flex-none h-9">
                 <Zap className="h-3.5 w-3.5" />
                 Wake All
               </Button>
             )}
             {onlineMachines.length > 0 && (
-              <Button variant="outline" size="sm" onClick={() => setShutdownAllConfirm(true)}>
+              <Button variant="outline" size="sm" onClick={() => setShutdownAllConfirm(true)} className="flex-1 sm:flex-none h-9">
                 <Power className="h-3.5 w-3.5" />
                 Shutdown All
               </Button>
