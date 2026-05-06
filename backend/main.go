@@ -462,11 +462,13 @@ func launchUpdateWindows(tmpDir string) error {
 	if err := os.WriteFile(scriptPath, []byte(windowsUpdateScript), 0644); err != nil {
 		return err
 	}
-	return exec.Command(
-		"cmd", "/c", "start", "/b", "powershell",
-		"-NoProfile", "-ExecutionPolicy", "Bypass",
-		"-File", scriptPath,
-	).Run()
+	// Start-Process spawns outside the scheduled-task Job Object, so it survives
+	// when schtasks /end kills the backend process.
+	psCmd := fmt.Sprintf(
+		`Start-Process powershell -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File "%s"' -WindowStyle Hidden`,
+		scriptPath,
+	)
+	return exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", psCmd).Run()
 }
 
 func streamUpdate(c *fiber.Ctx) error {
@@ -523,12 +525,19 @@ func streamUpdate(c *fiber.Ctx) error {
 			os.Chmod("/tmp/cluster-hub-install.sh", 0755)
 
 			logFile := filepath.Join(tmpDir, "update.log")
-			detachCmd := fmt.Sprintf(
-				`nohup bash -c 'sudo -n bash /tmp/cluster-hub-uninstall.sh >> "%s" 2>&1 && sudo -n bash /tmp/cluster-hub-install.sh >> "%s" 2>&1; rm -f /tmp/cluster-hub-uninstall.sh /tmp/cluster-hub-install.sh' > /dev/null 2>&1 &`,
-				logFile, logFile,
-			)
+			// Single root session: uninstall removes sudoers mid-run — doesn't matter, already root.
+			runScript := filepath.Join(tmpDir, "run.sh")
+			runContent := "#!/bin/bash\n" +
+				"bash /tmp/cluster-hub-uninstall.sh >> \"" + logFile + "\" 2>&1\n" +
+				"bash /tmp/cluster-hub-install.sh >> \"" + logFile + "\" 2>&1\n" +
+				"rm -f /tmp/cluster-hub-uninstall.sh /tmp/cluster-hub-install.sh\n"
+			if err := os.WriteFile(runScript, []byte(runContent), 0755); err != nil {
+				os.RemoveAll(tmpDir)
+				send("ERROR: cannot write run script: " + err.Error())
+				return
+			}
 			send("Launching update — server will restart now...")
-			exec.Command("bash", "-c", detachCmd).Run()
+			exec.Command("bash", "-c", "nohup sudo -n bash "+runScript+" > /dev/null 2>&1 &").Run()
 		} else {
 			send("Launching update — server will restart now...")
 			if err := launchUpdateWindows(tmpDir); err != nil {

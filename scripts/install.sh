@@ -83,7 +83,7 @@ systemctl enable cluster-hub-backend
 systemctl start cluster-hub-backend
 
 echo "Configuring sudoers for self-update..."
-echo "${SUDO_USER:-$USER} ALL=(ALL) NOPASSWD: /bin/bash /tmp/cluster-hub-uninstall.sh, /bin/bash /tmp/cluster-hub-install.sh" > /etc/sudoers.d/cluster-hub
+echo "${SUDO_USER:-$USER} ALL=(ALL) NOPASSWD: /bin/bash /tmp/cluster-hub-update/run.sh" > /etc/sudoers.d/cluster-hub
 chmod 440 /etc/sudoers.d/cluster-hub
 
 echo ""
