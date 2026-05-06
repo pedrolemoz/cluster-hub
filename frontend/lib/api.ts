@@ -39,3 +39,9 @@ export const getMachineMetrics = (id: number) =>
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return r.json();
   });
+
+export const checkVersion = () =>
+  req<{ current: string; latest: string; update_available: boolean }>('/api/version');
+
+export const triggerUpdate = () =>
+  req<{ status: string }>('/api/update', { method: 'POST' });

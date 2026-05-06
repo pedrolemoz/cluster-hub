@@ -36,3 +36,4 @@ desktop.ini
 .env
 .env.local
 .env.*.local
+backend/cluster-hub.exe

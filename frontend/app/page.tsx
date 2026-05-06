@@ -1,14 +1,14 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Search, Moon, Sun, Zap, Power, ServerCrash, Download, Upload } from 'lucide-react';
+import { Plus, Search, Moon, Sun, Zap, Power, ServerCrash, Download, Upload, RefreshCw } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { MachineCard } from '@/components/machine-card';
 import { MachineFormDialog } from '@/components/machine-form-dialog';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import { getMachines, addMachine, wakeMachine, shutdownMachine } from '@/lib/api';
+import { getMachines, addMachine, wakeMachine, shutdownMachine, checkVersion, triggerUpdate } from '@/lib/api';
 import { Machine, MachineForm } from '@/lib/types';
 import { toast } from 'sonner';
 
@@ -35,6 +35,9 @@ export default function HomePage() {
   const [wakeAllConfirm, setWakeAllConfirm] = useState(false);
   const [shutdownAllConfirm, setShutdownAllConfirm] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [updateConfirm, setUpdateConfirm] = useState(false);
+  const [updateBusy, setUpdateBusy] = useState(false);
   const importRef = useRef<HTMLInputElement>(null);
 
   const fetchMachines = useCallback(async () => {
@@ -53,6 +56,33 @@ export default function HomePage() {
     const iv = setInterval(fetchMachines, 5000);
     return () => clearInterval(iv);
   }, [fetchMachines]);
+
+  useEffect(() => {
+    const checkForUpdate = async () => {
+      try {
+        const v = await checkVersion();
+        setUpdateAvailable(v.update_available);
+      } catch {
+        // ignore — version check is best-effort
+      }
+    };
+    checkForUpdate();
+    const iv = setInterval(checkForUpdate, 10 * 60 * 1000);
+    return () => clearInterval(iv);
+  }, []);
+
+  async function doUpdate() {
+    setUpdateBusy(true);
+    try {
+      await triggerUpdate();
+      toast.success('Update started. The server will restart — refresh the page once it\'s back online.', { duration: 10000 });
+      setUpdateConfirm(false);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Update failed');
+    } finally {
+      setUpdateBusy(false);
+    }
+  }
 
   const filtered = machines.filter(
     (m) =>
@@ -161,6 +191,13 @@ export default function HomePage() {
               className="hidden"
               onChange={(e) => { const f = e.target.files?.[0]; if (f) importMachines(f); }}
             />
+            {updateAvailable && (
+              <Button variant="outline" size="sm" onClick={() => setUpdateConfirm(true)} className="relative border-orange-400 text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-950" title="A newer version is available">
+                <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-orange-500" />
+                <RefreshCw className="h-4 w-4" />
+                Update
+              </Button>
+            )}
             <Button variant="outline" size="sm" onClick={exportMachines} disabled={machines.length === 0} title="Export machines as JSON">
               <Download className="h-4 w-4" />
               Export
@@ -269,6 +306,15 @@ export default function HomePage() {
         variant="destructive"
         onConfirm={doShutdownAll}
         loading={bulkBusy}
+      />
+      <ConfirmDialog
+        open={updateConfirm}
+        onOpenChange={setUpdateConfirm}
+        title="Update Cluster Hub?"
+        description="This will uninstall the current version, install the latest from GitHub, and restore your machine config. The server will restart — the page will go offline briefly."
+        confirmLabel="Update Now"
+        onConfirm={doUpdate}
+        loading={updateBusy}
       />
     </div>
   );

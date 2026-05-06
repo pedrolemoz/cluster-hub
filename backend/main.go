@@ -9,7 +9,11 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -318,6 +322,127 @@ func getMachineMetrics(c *fiber.Ctx) error {
 	return c.Status(resp.StatusCode).JSON(result)
 }
 
+func getVersion(c *fiber.Ctx) error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "cannot determine home dir"})
+	}
+	installDir := filepath.Join(homeDir, "cluster-hub-dev")
+
+	current := "unknown"
+	if out, err := exec.Command("git", "-C", installDir, "rev-parse", "HEAD").Output(); err == nil {
+		current = strings.TrimSpace(string(out))
+	}
+
+	latest := "unknown"
+	if out, err := exec.Command("git", "ls-remote", "https://github.com/pedrolemoz/cluster-hub.git", "HEAD").Output(); err == nil {
+		parts := strings.Fields(string(out))
+		if len(parts) > 0 {
+			latest = parts[0]
+		}
+	}
+
+	return c.JSON(fiber.Map{
+		"current":          current,
+		"latest":           latest,
+		"update_available": current != "unknown" && latest != "unknown" && current != latest,
+	})
+}
+
+func triggerUpdate(c *fiber.Ctx) error {
+	if runtime.GOOS != "linux" {
+		return c.Status(400).JSON(fiber.Map{"error": "update only supported on Linux"})
+	}
+
+	rows, err := db.Query(`SELECT name, ip, mac, port, use_wowlan FROM machines`)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+	defer rows.Close()
+
+	type machineExport struct {
+		Name      string `json:"name"`
+		IP        string `json:"ip"`
+		MAC       string `json:"mac"`
+		Port      int    `json:"port"`
+		UseWoWLAN bool   `json:"use_wowlan"`
+	}
+	var machines []machineExport
+	for rows.Next() {
+		var m machineExport
+		var useWowlan int
+		if err := rows.Scan(&m.Name, &m.IP, &m.MAC, &m.Port, &useWowlan); err != nil {
+			continue
+		}
+		m.UseWoWLAN = useWowlan == 1
+		machines = append(machines, m)
+	}
+
+	tmpDir := filepath.Join(os.TempDir(), "cluster-hub-update")
+	if err := os.MkdirAll(tmpDir, 0755); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "cannot create temp dir: " + err.Error()})
+	}
+
+	data, err := json.MarshalIndent(machines, "", "  ")
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "machines.json"), data, 0644); err != nil {
+		os.RemoveAll(tmpDir)
+		return c.Status(500).JSON(fiber.Map{"error": "cannot write backup: " + err.Error()})
+	}
+
+	script := fmt.Sprintf(
+		"nohup sudo -n /usr/local/bin/cluster-hub-update %s > /tmp/cluster-hub-update.log 2>&1 &",
+		tmpDir,
+	)
+	if err := exec.Command("bash", "-c", script).Run(); err != nil {
+		os.RemoveAll(tmpDir)
+		return c.Status(500).JSON(fiber.Map{"error": "failed to start update: " + err.Error()})
+	}
+
+	return c.JSON(fiber.Map{"status": "updating"})
+}
+
+func importMachinesAPI(c *fiber.Ctx) error {
+	var entries []struct {
+		Name      string `json:"name"`
+		IP        string `json:"ip"`
+		MAC       string `json:"mac"`
+		Port      int    `json:"port"`
+		UseWoWLAN bool   `json:"use_wowlan"`
+	}
+	if err := c.BodyParser(&entries); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "invalid JSON"})
+	}
+
+	ok, fail := 0, 0
+	now := time.Now().UTC().Format(time.RFC3339)
+	for _, e := range entries {
+		if e.Name == "" || e.IP == "" || e.MAC == "" {
+			fail++
+			continue
+		}
+		if e.Port == 0 {
+			e.Port = 8080
+		}
+		useWoWLAN := 0
+		if e.UseWoWLAN {
+			useWoWLAN = 1
+		}
+		_, err := db.Exec(
+			`INSERT INTO machines (name, uuid, ip, mac, port, use_wowlan, is_online, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+			e.Name, uuid.New().String(), e.IP, e.MAC, e.Port, useWoWLAN, now, now,
+		)
+		if err != nil {
+			fail++
+		} else {
+			ok++
+		}
+	}
+	return c.JSON(fiber.Map{"imported": ok, "failed": fail})
+}
+
 func healthPoller() {
 	type entry struct {
 		id   int64
@@ -386,8 +511,11 @@ func main() {
 	})
 	app.Use(cors.New())
 
+	app.Get("/api/version", getVersion)
+	app.Post("/api/update", triggerUpdate)
 	app.Get("/api/machines", getMachines)
 	app.Post("/api/machines", addMachine)
+	app.Post("/api/machines/import", importMachinesAPI)
 	app.Put("/api/machines/:id", editMachine)
 	app.Delete("/api/machines/:id", deleteMachine)
 	app.Post("/api/machines/:id/wake", wakeMachine)
