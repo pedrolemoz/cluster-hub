@@ -349,14 +349,10 @@ func getVersion(c *fiber.Ctx) error {
 	})
 }
 
-func triggerUpdate(c *fiber.Ctx) error {
-	if runtime.GOOS != "linux" {
-		return c.Status(400).JSON(fiber.Map{"error": "update only supported on Linux"})
-	}
-
+func exportMachinesJSON() ([]byte, error) {
 	rows, err := db.Query(`SELECT name, ip, mac, port, use_wowlan FROM machines`)
 	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		return nil, err
 	}
 	defer rows.Close()
 
@@ -377,31 +373,107 @@ func triggerUpdate(c *fiber.Ctx) error {
 		m.UseWoWLAN = useWowlan == 1
 		machines = append(machines, m)
 	}
+	return json.MarshalIndent(machines, "", "  ")
+}
+
+func triggerUpdate(c *fiber.Ctx) error {
+	if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
+		return c.Status(400).JSON(fiber.Map{"error": "update not supported on " + runtime.GOOS})
+	}
+
+	data, err := exportMachinesJSON()
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
 
 	tmpDir := filepath.Join(os.TempDir(), "cluster-hub-update")
 	if err := os.MkdirAll(tmpDir, 0755); err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "cannot create temp dir: " + err.Error()})
 	}
 
-	data, err := json.MarshalIndent(machines, "", "  ")
-	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
-	}
 	if err := os.WriteFile(filepath.Join(tmpDir, "machines.json"), data, 0644); err != nil {
 		os.RemoveAll(tmpDir)
 		return c.Status(500).JSON(fiber.Map{"error": "cannot write backup: " + err.Error()})
 	}
 
+	var launchErr error
+	if runtime.GOOS == "windows" {
+		launchErr = launchUpdateWindows(tmpDir)
+	} else {
+		launchErr = launchUpdateLinux(tmpDir)
+	}
+
+	if launchErr != nil {
+		os.RemoveAll(tmpDir)
+		return c.Status(500).JSON(fiber.Map{"error": "failed to start update: " + launchErr.Error()})
+	}
+
+	return c.JSON(fiber.Map{"status": "updating"})
+}
+
+func launchUpdateLinux(tmpDir string) error {
 	script := fmt.Sprintf(
 		"nohup sudo -n /usr/local/bin/cluster-hub-update %s > /tmp/cluster-hub-update.log 2>&1 &",
 		tmpDir,
 	)
-	if err := exec.Command("bash", "-c", script).Run(); err != nil {
-		os.RemoveAll(tmpDir)
-		return c.Status(500).JSON(fiber.Map{"error": "failed to start update: " + err.Error()})
-	}
+	return exec.Command("bash", "-c", script).Run()
+}
 
-	return c.JSON(fiber.Map{"status": "updating"})
+const windowsUpdateScript = `
+$BackupDir = $args[0]
+Start-Sleep -Seconds 2
+
+function Download-And-Run([string]$Url) {
+    $tmp = [System.IO.Path]::GetTempFileName() + ".ps1"
+    Invoke-WebRequest -Uri $Url -OutFile $tmp -UseBasicParsing
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $tmp
+    Remove-Item $tmp -ErrorAction SilentlyContinue
+}
+
+Write-Host "[update] Uninstalling..."
+Download-And-Run "https://raw.githubusercontent.com/pedrolemoz/cluster-hub/main/scripts/uninstall.ps1"
+
+Write-Host "[update] Installing..."
+Download-And-Run "https://raw.githubusercontent.com/pedrolemoz/cluster-hub/main/scripts/install.ps1"
+
+Write-Host "[update] Waiting for service..."
+$tries = 0
+$ready = $false
+while (-not $ready) {
+    Start-Sleep -Seconds 3
+    $tries++
+    if ($tries -gt 40) {
+        Remove-Item -Recurse -Force $BackupDir -ErrorAction SilentlyContinue
+        exit 1
+    }
+    try {
+        $r = Invoke-WebRequest -Uri "http://localhost:3001/api/machines" -UseBasicParsing -TimeoutSec 3
+        $ready = ($r.StatusCode -eq 200)
+    } catch { $ready = $false }
+}
+
+$backupFile = Join-Path $BackupDir "machines.json"
+if (Test-Path $backupFile) {
+    Write-Host "[update] Restoring machines..."
+    $body = Get-Content $backupFile -Raw
+    Invoke-RestMethod -Uri "http://localhost:3001/api/machines/import" -Method POST -Body $body -ContentType "application/json" | Out-Null
+}
+
+Remove-Item -Recurse -Force $BackupDir -ErrorAction SilentlyContinue
+Write-Host "[update] Done."
+`
+
+func launchUpdateWindows(tmpDir string) error {
+	scriptPath := filepath.Join(tmpDir, "update.ps1")
+	if err := os.WriteFile(scriptPath, []byte(windowsUpdateScript), 0644); err != nil {
+		return err
+	}
+	// cmd /c start /b runs detached — no window, not a child of this process
+	return exec.Command(
+		"cmd", "/c", "start", "/b", "powershell",
+		"-NoProfile", "-ExecutionPolicy", "Bypass",
+		"-File", scriptPath, tmpDir,
+	).Run()
 }
 
 func importMachinesAPI(c *fiber.Ctx) error {

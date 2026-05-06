@@ -191,13 +191,17 @@ export default function HomePage() {
               className="hidden"
               onChange={(e) => { const f = e.target.files?.[0]; if (f) importMachines(f); }}
             />
-            {updateAvailable && (
-              <Button variant="outline" size="sm" onClick={() => setUpdateConfirm(true)} className="relative border-orange-400 text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-950" title="A newer version is available">
-                <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-orange-500" />
-                <RefreshCw className="h-4 w-4" />
-                Update
-              </Button>
-            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setUpdateConfirm(true)}
+              className={updateAvailable ? 'relative border-orange-400 text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-950' : 'relative'}
+              title={updateAvailable ? 'A newer version is available' : 'Update Cluster Hub'}
+            >
+              {updateAvailable && <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-orange-500" />}
+              <RefreshCw className="h-4 w-4" />
+              Update
+            </Button>
             <Button variant="outline" size="sm" onClick={exportMachines} disabled={machines.length === 0} title="Export machines as JSON">
               <Download className="h-4 w-4" />
               Export
