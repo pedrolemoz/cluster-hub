@@ -62,3 +62,14 @@ export const MetricsSchema = z.object({
 });
 
 export type Metrics = z.infer<typeof MetricsSchema>;
+
+export interface DailyStats {
+  day: string;
+  avg_cpu_usage: number | null;
+  avg_cpu_temp: number | null;
+  avg_ram_used_mb: number | null;
+  avg_ram_total_mb: number | null;
+  avg_gpu_usage: number | null;
+  avg_gpu_temp: number | null;
+  sample_count: number;
+}

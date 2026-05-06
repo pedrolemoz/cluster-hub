@@ -1,4 +1,4 @@
-import { Machine, MachineForm } from './types';
+import { Machine, MachineForm, DailyStats } from './types';
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
@@ -42,3 +42,6 @@ export const getMachineMetrics = (id: number) =>
 
 export const checkVersion = () =>
   req<{ current: string; latest: string; update_available: boolean }>('/api/version');
+
+export const getMachineStatsHistory = (id: number, days: number) =>
+  req<DailyStats[]>(`/api/machines/${id}/stats?days=${days}`);

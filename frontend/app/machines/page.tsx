@@ -13,6 +13,7 @@ import {
   Thermometer,
   Activity,
   WifiOff,
+  History,
 } from 'lucide-react';
 import {
   LineChart,
@@ -31,8 +32,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
-import { getMachines, getMachineMetrics } from '@/lib/api';
-import { Machine, Metrics, MetricsSchema } from '@/lib/types';
+import { getMachines, getMachineMetrics, getMachineStatsHistory } from '@/lib/api';
+import { Machine, Metrics, MetricsSchema, DailyStats } from '@/lib/types';
 import { fmt, fmtMb } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
@@ -110,6 +111,9 @@ function MachinePage() {
   const [cpuChart, setCpuChart] = useState<ChartPoint[]>([]);
   const [gpuChart, setGpuChart] = useState<ChartPoint[]>([]);
 
+  const [historyDays, setHistoryDays] = useState<1 | 3 | 5 | 7>(7);
+  const [history, setHistory] = useState<DailyStats[]>([]);
+
   const fetchMachine = useCallback(async () => {
     try {
       const all = await getMachines();
@@ -149,6 +153,13 @@ function MachinePage() {
     }
   }, [id]);
 
+  const fetchHistory = useCallback(async () => {
+    try {
+      const data = await getMachineStatsHistory(id, historyDays);
+      setHistory(data);
+    } catch {}
+  }, [id, historyDays]);
+
   useEffect(() => {
     fetchMachine();
     fetchMetrics();
@@ -159,6 +170,12 @@ function MachinePage() {
       clearInterval(metricsIv);
     };
   }, [fetchMachine, fetchMetrics]);
+
+  useEffect(() => {
+    fetchHistory();
+    const iv = setInterval(fetchHistory, 5 * 60 * 1000);
+    return () => clearInterval(iv);
+  }, [fetchHistory]);
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -348,6 +365,189 @@ function MachinePage() {
                 </ResponsiveContainer>
               </div>
             </>
+          )}
+        </div>
+
+        {/* History Card */}
+        <div className="glass rounded-2xl p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 font-semibold">
+              <History className="h-4 w-4 text-primary" />
+              History
+            </div>
+            <div className="flex gap-1">
+              {([1, 3, 5, 7] as const).map((d) => (
+                <Button
+                  key={d}
+                  variant={historyDays === d ? 'default' : 'ghost'}
+                  size="sm"
+                  className="h-7 px-2.5 text-xs"
+                  onClick={() => setHistoryDays(d)}
+                >
+                  {d}d
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          {history.length === 0 ? (
+            <div className="py-8 text-center text-muted-foreground text-sm">
+              No history data yet — stats are collected every 15 minutes
+            </div>
+          ) : (
+            <div className="space-y-5">
+              {/* CPU history */}
+              <div>
+                <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
+                  <Cpu className="h-3 w-3" /> CPU Usage %
+                </p>
+                <div className="h-28">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={history} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                      <XAxis
+                        dataKey="day"
+                        tick={{ fontSize: 10 }}
+                        tickFormatter={(v: string) =>
+                          new Date(v + 'T12:00:00Z').toLocaleDateString('en-US', {
+                            month: 'short', day: 'numeric', timeZone: 'UTC',
+                          })
+                        }
+                      />
+                      <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
+                      <Tooltip
+                        formatter={(v: unknown) => (v == null ? '--' : `${Number(v).toFixed(1)}%`)}
+                        labelFormatter={(l: string) =>
+                          new Date(l + 'T12:00:00Z').toLocaleDateString('en-US', {
+                            weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC',
+                          })
+                        }
+                        contentStyle={{
+                          background: 'rgba(15,23,42,0.9)',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          borderRadius: '8px',
+                          fontSize: '12px',
+                        }}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="avg_cpu_usage"
+                        name="CPU"
+                        stroke="hsl(221 83% 60%)"
+                        strokeWidth={2}
+                        dot={{ r: 3 }}
+                        connectNulls={false}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* RAM history */}
+              <div>
+                <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
+                  <MemoryStick className="h-3 w-3" /> RAM Usage %
+                </p>
+                <div className="h-28">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart
+                      data={history.map((s) => ({
+                        ...s,
+                        ram_pct:
+                          s.avg_ram_total_mb && s.avg_ram_used_mb != null
+                            ? Math.round((s.avg_ram_used_mb / s.avg_ram_total_mb) * 100)
+                            : null,
+                      }))}
+                      margin={{ top: 4, right: 4, bottom: 0, left: -20 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                      <XAxis
+                        dataKey="day"
+                        tick={{ fontSize: 10 }}
+                        tickFormatter={(v: string) =>
+                          new Date(v + 'T12:00:00Z').toLocaleDateString('en-US', {
+                            month: 'short', day: 'numeric', timeZone: 'UTC',
+                          })
+                        }
+                      />
+                      <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
+                      <Tooltip
+                        formatter={(v: unknown) => (v == null ? '--' : `${Number(v)}%`)}
+                        labelFormatter={(l: string) =>
+                          new Date(l + 'T12:00:00Z').toLocaleDateString('en-US', {
+                            weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC',
+                          })
+                        }
+                        contentStyle={{
+                          background: 'rgba(15,23,42,0.9)',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          borderRadius: '8px',
+                          fontSize: '12px',
+                        }}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="ram_pct"
+                        name="RAM"
+                        stroke="hsl(270 70% 65%)"
+                        strokeWidth={2}
+                        dot={{ r: 3 }}
+                        connectNulls={false}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* GPU history (only if any data has gpu) */}
+              {history.some((s) => s.avg_gpu_usage != null) && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
+                    <MonitorPlay className="h-3 w-3" /> GPU Usage %
+                  </p>
+                  <div className="h-28">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={history} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                        <XAxis
+                          dataKey="day"
+                          tick={{ fontSize: 10 }}
+                          tickFormatter={(v: string) =>
+                            new Date(v + 'T12:00:00Z').toLocaleDateString('en-US', {
+                              month: 'short', day: 'numeric', timeZone: 'UTC',
+                            })
+                          }
+                        />
+                        <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
+                        <Tooltip
+                          formatter={(v: unknown) => (v == null ? '--' : `${Number(v).toFixed(1)}%`)}
+                          labelFormatter={(l: string) =>
+                            new Date(l + 'T12:00:00Z').toLocaleDateString('en-US', {
+                              weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC',
+                            })
+                          }
+                          contentStyle={{
+                            background: 'rgba(15,23,42,0.9)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            borderRadius: '8px',
+                            fontSize: '12px',
+                          }}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="avg_gpu_usage"
+                          name="GPU"
+                          stroke="hsl(38 92% 50%)"
+                          strokeWidth={2}
+                          dot={{ r: 3 }}
+                          connectNulls={false}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
         </div>
 

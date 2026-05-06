@@ -76,6 +76,23 @@ func initDB() error {
 	}
 	// migrate existing DBs that lack the column
 	db.Exec(`ALTER TABLE machines ADD COLUMN use_wowlan INTEGER NOT NULL DEFAULT 0`)
+
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS machine_stats (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			machine_id   INTEGER NOT NULL,
+			recorded_at  TEXT    NOT NULL,
+			cpu_usage    REAL,
+			cpu_temp     REAL,
+			ram_used_mb  REAL,
+			ram_total_mb REAL,
+			gpu_usage    REAL,
+			gpu_temp     REAL
+		)
+	`)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -589,6 +606,133 @@ func importMachinesAPI(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"imported": ok, "failed": fail})
 }
 
+func statsPoller() {
+	type agentMetrics struct {
+		CPU *struct {
+			UsagePct *float64 `json:"usage_percentage"`
+			TempC    *float64 `json:"temperature_in_celsius"`
+		} `json:"cpu"`
+		RAM *struct {
+			UsedMB  *float64 `json:"in_use_in_mb"`
+			TotalMB *float64 `json:"total_in_mb"`
+		} `json:"ram"`
+		GPU *struct {
+			UsagePct *float64 `json:"usage_percentage"`
+			TempC    *float64 `json:"temperature_in_celsius"`
+		} `json:"gpu"`
+	}
+	type machineEntry struct {
+		id   int64
+		ip   string
+		port int
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	for {
+		rows, err := db.Query(`SELECT id, ip, port FROM machines WHERE is_online=1`)
+		if err != nil {
+			time.Sleep(15 * time.Minute)
+			continue
+		}
+		var entries []machineEntry
+		for rows.Next() {
+			var e machineEntry
+			rows.Scan(&e.id, &e.ip, &e.port)
+			entries = append(entries, e)
+		}
+		rows.Close()
+
+		now := time.Now().UTC().Format(time.RFC3339)
+		for _, e := range entries {
+			resp, err := client.Get(fmt.Sprintf("http://%s:%d/metrics", e.ip, e.port))
+			if err != nil {
+				continue
+			}
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+
+			var m agentMetrics
+			if err := json.Unmarshal(body, &m); err != nil {
+				continue
+			}
+
+			var cpuUsage, cpuTemp, ramUsed, ramTotal, gpuUsage, gpuTemp *float64
+			if m.CPU != nil {
+				cpuUsage = m.CPU.UsagePct
+				cpuTemp = m.CPU.TempC
+			}
+			if m.RAM != nil {
+				ramUsed = m.RAM.UsedMB
+				ramTotal = m.RAM.TotalMB
+			}
+			if m.GPU != nil {
+				gpuUsage = m.GPU.UsagePct
+				gpuTemp = m.GPU.TempC
+			}
+
+			db.Exec(`INSERT INTO machine_stats (machine_id, recorded_at, cpu_usage, cpu_temp, ram_used_mb, ram_total_mb, gpu_usage, gpu_temp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+				e.id, now, cpuUsage, cpuTemp, ramUsed, ramTotal, gpuUsage, gpuTemp)
+		}
+
+		db.Exec(`DELETE FROM machine_stats WHERE recorded_at < datetime('now', '-7 days')`)
+		time.Sleep(15 * time.Minute)
+	}
+}
+
+func getMachineStats(c *fiber.Ctx) error {
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "invalid id"})
+	}
+	days, _ := strconv.Atoi(c.Query("days", "7"))
+	if days < 1 || days > 7 {
+		days = 7
+	}
+
+	rows, err := db.Query(`
+		SELECT
+			date(recorded_at)  AS day,
+			AVG(cpu_usage)     AS avg_cpu_usage,
+			AVG(cpu_temp)      AS avg_cpu_temp,
+			AVG(ram_used_mb)   AS avg_ram_used_mb,
+			AVG(ram_total_mb)  AS avg_ram_total_mb,
+			AVG(gpu_usage)     AS avg_gpu_usage,
+			AVG(gpu_temp)      AS avg_gpu_temp,
+			COUNT(*)           AS sample_count
+		FROM machine_stats
+		WHERE machine_id = ? AND recorded_at >= datetime('now', ? || ' days')
+		GROUP BY date(recorded_at)
+		ORDER BY day ASC
+	`, id, fmt.Sprintf("-%d", days))
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+	defer rows.Close()
+
+	type DailyStat struct {
+		Day         string   `json:"day"`
+		AvgCPU      *float64 `json:"avg_cpu_usage"`
+		AvgCPUTemp  *float64 `json:"avg_cpu_temp"`
+		AvgRAMUsed  *float64 `json:"avg_ram_used_mb"`
+		AvgRAMTotal *float64 `json:"avg_ram_total_mb"`
+		AvgGPU      *float64 `json:"avg_gpu_usage"`
+		AvgGPUTemp  *float64 `json:"avg_gpu_temp"`
+		SampleCount int      `json:"sample_count"`
+	}
+
+	var stats []DailyStat
+	for rows.Next() {
+		var s DailyStat
+		rows.Scan(&s.Day, &s.AvgCPU, &s.AvgCPUTemp, &s.AvgRAMUsed, &s.AvgRAMTotal, &s.AvgGPU, &s.AvgGPUTemp, &s.SampleCount)
+		stats = append(stats, s)
+	}
+	if stats == nil {
+		stats = []DailyStat{}
+	}
+	return c.JSON(stats)
+}
+
 func healthPoller() {
 	type entry struct {
 		id   int64
@@ -652,6 +796,7 @@ func main() {
 	importPendingBackup()
 
 	go healthPoller()
+	go statsPoller()
 
 	app := fiber.New(fiber.Config{
 		DisableStartupMessage: false,
@@ -669,6 +814,7 @@ func main() {
 	app.Post("/api/machines/:id/shutdown", shutdownMachine)
 	app.Get("/api/machines/:id/health", getMachineHealth)
 	app.Get("/api/machines/:id/metrics", getMachineMetrics)
+	app.Get("/api/machines/:id/stats", getMachineStats)
 
 	app.Use("/api", func(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "not found"})
