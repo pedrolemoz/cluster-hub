@@ -24,21 +24,16 @@ interface Props {
 const DEFAULT_PORT = 8732;
 const empty: MachineForm = { name: '', ip: '', secondary_ip: '', mac: '', port: DEFAULT_PORT, use_wowlan: false };
 
-function validateIP(ip: string): string | null {
-  const trimmed = ip.trim();
-  const parts = trimmed.split('.');
-  if (parts.length !== 4) return 'IP must be in format 192.168.1.100';
-  for (const p of parts) {
-    if (!/^\d+$/.test(p)) return 'IP must contain only numbers and dots';
-    const n = parseInt(p, 10);
-    if (n < 0 || n > 255) return 'Each IP octet must be 0–255';
-  }
+function validateAddress(addr: string): string | null {
+  const trimmed = addr.trim();
+  if (!trimmed) return 'Address is required';
+  if (/\s/.test(trimmed)) return 'Address must not contain spaces';
   return null;
 }
 
-function validateSecondaryIP(ip: string): string | null {
-  if (!ip.trim()) return null;
-  return validateIP(ip);
+function validateSecondaryAddress(addr: string): string | null {
+  if (!addr.trim()) return null;
+  return validateAddress(addr);
 }
 
 function validateMAC(mac: string): string | null {
@@ -84,9 +79,9 @@ export function MachineFormDialog({ open, onOpenChange, initial, title, onSubmit
   function validate(): FieldErrors {
     const errs: FieldErrors = {};
     if (!form.name.trim()) errs.name = 'Name is required';
-    const ipErr = validateIP(form.ip);
+    const ipErr = validateAddress(form.ip);
     if (ipErr) errs.ip = ipErr;
-    const secIpErr = validateSecondaryIP(form.secondary_ip);
+    const secIpErr = validateSecondaryAddress(form.secondary_ip);
     if (secIpErr) errs.secondary_ip = secIpErr;
     const macErr = validateMAC(form.mac);
     if (macErr) errs.mac = macErr;
@@ -134,10 +129,10 @@ export function MachineFormDialog({ open, onOpenChange, initial, title, onSubmit
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="mfd-ip">IP Address</Label>
+            <Label htmlFor="mfd-ip">IP Address or Hostname</Label>
             <Input
               id="mfd-ip"
-              placeholder="192.168.1.100"
+              placeholder="192.168.1.100 or hostname"
               value={form.ip}
               onChange={set('ip')}
               className={errors.ip ? 'border-destructive focus-visible:ring-destructive' : ''}
@@ -149,7 +144,7 @@ export function MachineFormDialog({ open, onOpenChange, initial, title, onSubmit
             <Label htmlFor="mfd-secondary-ip">VPN / Secondary IP <span className="text-muted-foreground font-normal">(optional)</span></Label>
             <Input
               id="mfd-secondary-ip"
-              placeholder="100.x.y.z"
+              placeholder="100.x.y.z or i5-9600k"
               value={form.secondary_ip}
               onChange={set('secondary_ip')}
               className={errors.secondary_ip ? 'border-destructive focus-visible:ring-destructive' : ''}
