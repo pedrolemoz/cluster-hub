@@ -191,7 +191,7 @@ export function MachineCard({ machine: m, onRefresh }: Props) {
       <MachineFormDialog
         open={editOpen}
         onOpenChange={setEditOpen}
-        initial={{ name: m.name, ip: m.ip, mac: m.mac, port: m.port, use_wowlan: m.use_wowlan }}
+        initial={{ name: m.name, ip: m.ip, secondary_ip: m.secondary_ip, mac: m.mac, port: m.port, use_wowlan: m.use_wowlan }}
         title="Edit Machine"
         onSubmit={doEdit}
       />

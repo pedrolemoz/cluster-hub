@@ -22,7 +22,7 @@ interface Props {
 }
 
 const DEFAULT_PORT = 8732;
-const empty: MachineForm = { name: '', ip: '', mac: '', port: DEFAULT_PORT, use_wowlan: false };
+const empty: MachineForm = { name: '', ip: '', secondary_ip: '', mac: '', port: DEFAULT_PORT, use_wowlan: false };
 
 function validateIP(ip: string): string | null {
   const trimmed = ip.trim();
@@ -34,6 +34,11 @@ function validateIP(ip: string): string | null {
     if (n < 0 || n > 255) return 'Each IP octet must be 0–255';
   }
   return null;
+}
+
+function validateSecondaryIP(ip: string): string | null {
+  if (!ip.trim()) return null;
+  return validateIP(ip);
 }
 
 function validateMAC(mac: string): string | null {
@@ -51,6 +56,7 @@ function validatePort(port: number): string | null {
 interface FieldErrors {
   name?: string;
   ip?: string;
+  secondary_ip?: string;
   mac?: string;
   port?: string;
 }
@@ -80,6 +86,8 @@ export function MachineFormDialog({ open, onOpenChange, initial, title, onSubmit
     if (!form.name.trim()) errs.name = 'Name is required';
     const ipErr = validateIP(form.ip);
     if (ipErr) errs.ip = ipErr;
+    const secIpErr = validateSecondaryIP(form.secondary_ip);
+    if (secIpErr) errs.secondary_ip = secIpErr;
     const macErr = validateMAC(form.mac);
     if (macErr) errs.mac = macErr;
     const portErr = validatePort(form.port);
@@ -135,6 +143,18 @@ export function MachineFormDialog({ open, onOpenChange, initial, title, onSubmit
               className={errors.ip ? 'border-destructive focus-visible:ring-destructive' : ''}
             />
             {errors.ip && <p className="text-xs text-destructive">{errors.ip}</p>}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="mfd-secondary-ip">VPN / Secondary IP <span className="text-muted-foreground font-normal">(optional)</span></Label>
+            <Input
+              id="mfd-secondary-ip"
+              placeholder="100.x.y.z"
+              value={form.secondary_ip}
+              onChange={set('secondary_ip')}
+              className={errors.secondary_ip ? 'border-destructive focus-visible:ring-destructive' : ''}
+            />
+            {errors.secondary_ip && <p className="text-xs text-destructive">{errors.secondary_ip}</p>}
           </div>
 
           <div className="space-y-1.5">

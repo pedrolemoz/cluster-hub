@@ -30,18 +30,19 @@ var (
 )
 
 type Machine struct {
-	ID         int64   `json:"id"`
-	Name       string  `json:"name"`
-	UUID       string  `json:"uuid"`
-	IP         string  `json:"ip"`
-	MAC        string  `json:"mac"`
-	Port       int     `json:"port"`
-	UseWoWLAN  bool    `json:"use_wowlan"`
-	IsOnline   bool    `json:"is_online"`
-	LastSeenAt *string `json:"last_seen_at"`
-	CreatedAt  string  `json:"created_at"`
-	UpdatedAt  string  `json:"updated_at"`
-	PingMs     *int64  `json:"ping_ms"`
+	ID          int64   `json:"id"`
+	Name        string  `json:"name"`
+	UUID        string  `json:"uuid"`
+	IP          string  `json:"ip"`
+	SecondaryIP string  `json:"secondary_ip"`
+	MAC         string  `json:"mac"`
+	Port        int     `json:"port"`
+	UseWoWLAN   bool    `json:"use_wowlan"`
+	IsOnline    bool    `json:"is_online"`
+	LastSeenAt  *string `json:"last_seen_at"`
+	CreatedAt   string  `json:"created_at"`
+	UpdatedAt   string  `json:"updated_at"`
+	PingMs      *int64  `json:"ping_ms"`
 }
 
 type rowScanner interface {
@@ -76,6 +77,7 @@ func initDB() error {
 	}
 	// migrate existing DBs that lack the column
 	db.Exec(`ALTER TABLE machines ADD COLUMN use_wowlan INTEGER NOT NULL DEFAULT 0`)
+	db.Exec(`ALTER TABLE machines ADD COLUMN secondary_ip TEXT NOT NULL DEFAULT ''`)
 
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS machine_stats (
@@ -100,7 +102,7 @@ func scanMachine(row rowScanner) (Machine, error) {
 	var m Machine
 	var useWoWLAN, isOnline int
 	var lastSeen sql.NullString
-	err := row.Scan(&m.ID, &m.Name, &m.UUID, &m.IP, &m.MAC, &m.Port, &useWoWLAN,
+	err := row.Scan(&m.ID, &m.Name, &m.UUID, &m.IP, &m.SecondaryIP, &m.MAC, &m.Port, &useWoWLAN,
 		&isOnline, &lastSeen, &m.CreatedAt, &m.UpdatedAt)
 	if err != nil {
 		return m, err
@@ -117,7 +119,7 @@ func scanMachine(row rowScanner) (Machine, error) {
 	return m, nil
 }
 
-const machineSelect = `SELECT id, name, uuid, ip, mac, port, use_wowlan, is_online, last_seen_at, created_at, updated_at FROM machines`
+const machineSelect = `SELECT id, name, uuid, ip, secondary_ip, mac, port, use_wowlan, is_online, last_seen_at, created_at, updated_at FROM machines`
 
 func getMachines(c *fiber.Ctx) error {
 	rows, err := db.Query(machineSelect + ` ORDER BY is_online DESC, name ASC`)
@@ -139,11 +141,12 @@ func getMachines(c *fiber.Ctx) error {
 
 func addMachine(c *fiber.Ctx) error {
 	var body struct {
-		Name      string `json:"name"`
-		IP        string `json:"ip"`
-		MAC       string `json:"mac"`
-		Port      int    `json:"port"`
-		UseWoWLAN bool   `json:"use_wowlan"`
+		Name        string `json:"name"`
+		IP          string `json:"ip"`
+		SecondaryIP string `json:"secondary_ip"`
+		MAC         string `json:"mac"`
+		Port        int    `json:"port"`
+		UseWoWLAN   bool   `json:"use_wowlan"`
 	}
 	if err := c.BodyParser(&body); err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid body"})
@@ -160,8 +163,8 @@ func addMachine(c *fiber.Ctx) error {
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	result, err := db.Exec(
-		`INSERT INTO machines (name, uuid, ip, mac, port, use_wowlan, is_online, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-		body.Name, uuid.New().String(), body.IP, body.MAC, body.Port, useWoWLAN, now, now,
+		`INSERT INTO machines (name, uuid, ip, secondary_ip, mac, port, use_wowlan, is_online, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+		body.Name, uuid.New().String(), body.IP, body.SecondaryIP, body.MAC, body.Port, useWoWLAN, now, now,
 	)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
@@ -181,11 +184,12 @@ func editMachine(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid id"})
 	}
 	var body struct {
-		Name      string `json:"name"`
-		IP        string `json:"ip"`
-		MAC       string `json:"mac"`
-		Port      int    `json:"port"`
-		UseWoWLAN bool   `json:"use_wowlan"`
+		Name        string `json:"name"`
+		IP          string `json:"ip"`
+		SecondaryIP string `json:"secondary_ip"`
+		MAC         string `json:"mac"`
+		Port        int    `json:"port"`
+		UseWoWLAN   bool   `json:"use_wowlan"`
 	}
 	if err := c.BodyParser(&body); err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid body"})
@@ -199,8 +203,8 @@ func editMachine(c *fiber.Ctx) error {
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err = db.Exec(
-		`UPDATE machines SET name=?, ip=?, mac=?, port=?, use_wowlan=?, updated_at=? WHERE id=?`,
-		body.Name, body.IP, body.MAC, body.Port, useWoWLAN, now, id,
+		`UPDATE machines SET name=?, ip=?, secondary_ip=?, mac=?, port=?, use_wowlan=?, updated_at=? WHERE id=?`,
+		body.Name, body.IP, body.SecondaryIP, body.MAC, body.Port, useWoWLAN, now, id,
 	)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
@@ -368,24 +372,25 @@ func getVersion(c *fiber.Ctx) error {
 }
 
 func exportMachinesJSON() ([]byte, error) {
-	rows, err := db.Query(`SELECT name, ip, mac, port, use_wowlan FROM machines`)
+	rows, err := db.Query(`SELECT name, ip, secondary_ip, mac, port, use_wowlan FROM machines`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
 	type machineExport struct {
-		Name      string `json:"name"`
-		IP        string `json:"ip"`
-		MAC       string `json:"mac"`
-		Port      int    `json:"port"`
-		UseWoWLAN bool   `json:"use_wowlan"`
+		Name        string `json:"name"`
+		IP          string `json:"ip"`
+		SecondaryIP string `json:"secondary_ip"`
+		MAC         string `json:"mac"`
+		Port        int    `json:"port"`
+		UseWoWLAN   bool   `json:"use_wowlan"`
 	}
 	var machines []machineExport
 	for rows.Next() {
 		var m machineExport
 		var useWowlan int
-		if err := rows.Scan(&m.Name, &m.IP, &m.MAC, &m.Port, &useWowlan); err != nil {
+		if err := rows.Scan(&m.Name, &m.IP, &m.SecondaryIP, &m.MAC, &m.Port, &useWowlan); err != nil {
 			continue
 		}
 		m.UseWoWLAN = useWowlan == 1
@@ -425,11 +430,12 @@ func importPendingBackup() {
 		return
 	}
 	var entries []struct {
-		Name      string `json:"name"`
-		IP        string `json:"ip"`
-		MAC       string `json:"mac"`
-		Port      int    `json:"port"`
-		UseWoWLAN bool   `json:"use_wowlan"`
+		Name        string `json:"name"`
+		IP          string `json:"ip"`
+		SecondaryIP string `json:"secondary_ip"`
+		MAC         string `json:"mac"`
+		Port        int    `json:"port"`
+		UseWoWLAN   bool   `json:"use_wowlan"`
 	}
 	if err := json.Unmarshal(data, &entries); err != nil {
 		log.Printf("backup import: parse error: %v", err)
@@ -447,8 +453,8 @@ func importPendingBackup() {
 			useWoWLAN = 1
 		}
 		_, err := db.Exec(
-			`INSERT INTO machines (name, uuid, ip, mac, port, use_wowlan, is_online, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-			e.Name, uuid.New().String(), e.IP, e.MAC, e.Port, useWoWLAN, now, now,
+			`INSERT INTO machines (name, uuid, ip, secondary_ip, mac, port, use_wowlan, is_online, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+			e.Name, uuid.New().String(), e.IP, e.SecondaryIP, e.MAC, e.Port, useWoWLAN, now, now,
 		)
 		if err == nil {
 			ok++
@@ -569,11 +575,12 @@ func streamUpdate(c *fiber.Ctx) error {
 
 func importMachinesAPI(c *fiber.Ctx) error {
 	var entries []struct {
-		Name      string `json:"name"`
-		IP        string `json:"ip"`
-		MAC       string `json:"mac"`
-		Port      int    `json:"port"`
-		UseWoWLAN bool   `json:"use_wowlan"`
+		Name        string `json:"name"`
+		IP          string `json:"ip"`
+		SecondaryIP string `json:"secondary_ip"`
+		MAC         string `json:"mac"`
+		Port        int    `json:"port"`
+		UseWoWLAN   bool   `json:"use_wowlan"`
 	}
 	if err := c.BodyParser(&entries); err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid JSON"})
@@ -594,8 +601,8 @@ func importMachinesAPI(c *fiber.Ctx) error {
 			useWoWLAN = 1
 		}
 		_, err := db.Exec(
-			`INSERT INTO machines (name, uuid, ip, mac, port, use_wowlan, is_online, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-			e.Name, uuid.New().String(), e.IP, e.MAC, e.Port, useWoWLAN, now, now,
+			`INSERT INTO machines (name, uuid, ip, secondary_ip, mac, port, use_wowlan, is_online, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+			e.Name, uuid.New().String(), e.IP, e.SecondaryIP, e.MAC, e.Port, useWoWLAN, now, now,
 		)
 		if err != nil {
 			fail++
@@ -734,14 +741,15 @@ func getMachineStats(c *fiber.Ctx) error {
 
 func healthPoller() {
 	type entry struct {
-		id   int64
-		ip   string
-		port int
+		id          int64
+		ip          string
+		secondaryIP string
+		port        int
 	}
 	client := &http.Client{Timeout: 2 * time.Second}
 
 	for {
-		rows, err := db.Query(`SELECT id, ip, port FROM machines`)
+		rows, err := db.Query(`SELECT id, ip, secondary_ip, port FROM machines`)
 		if err != nil {
 			time.Sleep(5 * time.Second)
 			continue
@@ -749,7 +757,7 @@ func healthPoller() {
 		var entries []entry
 		for rows.Next() {
 			var e entry
-			rows.Scan(&e.id, &e.ip, &e.port)
+			rows.Scan(&e.id, &e.ip, &e.secondaryIP, &e.port)
 			entries = append(entries, e)
 		}
 		rows.Close()
@@ -757,6 +765,13 @@ func healthPoller() {
 		for _, e := range entries {
 			start := time.Now()
 			resp, err := client.Get(fmt.Sprintf("http://%s:%d/health", e.ip, e.port))
+			if (err != nil || resp.StatusCode != 200) && e.secondaryIP != "" {
+				if resp != nil {
+					resp.Body.Close()
+				}
+				start = time.Now()
+				resp, err = client.Get(fmt.Sprintf("http://%s:%d/health", e.secondaryIP, e.port))
+			}
 			elapsed := time.Since(start).Milliseconds()
 			now := time.Now().UTC().Format(time.RFC3339)
 			if err == nil && resp.StatusCode == 200 {

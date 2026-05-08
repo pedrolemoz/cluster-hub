@@ -5,6 +5,7 @@ export interface Machine {
   name: string;
   uuid: string;
   ip: string;
+  secondary_ip: string;
   mac: string;
   port: number;
   use_wowlan: boolean;
@@ -18,6 +19,7 @@ export interface Machine {
 export interface MachineForm {
   name: string;
   ip: string;
+  secondary_ip: string;
   mac: string;
   port: number;
   use_wowlan: boolean;

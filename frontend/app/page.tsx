@@ -163,7 +163,7 @@ export default function HomePage() {
   }
 
   function exportMachines() {
-    const data: MachineForm[] = machines.map(({ name, ip, mac, port, use_wowlan }) => ({ name, ip, mac, port, use_wowlan }));
+    const data: MachineForm[] = machines.map(({ name, ip, secondary_ip, mac, port, use_wowlan }) => ({ name, ip, secondary_ip, mac, port, use_wowlan }));
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
