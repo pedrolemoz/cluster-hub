@@ -79,6 +79,7 @@ app.post('/api/auth/logout', (_req, res) => { res.clearCookie('cluster_session',
 
 app.get('/api/computers', requireAuth, route(async (_req, res) => {
   const { computers } = await store.read()
+  if (_req.query.probe === 'false') return res.json(computers.map(computer => ({ ...computer, detectedEndpoint: null, online: null })))
   const statuses = await Promise.all(computers.map(async computer => ({ ...computer, detectedEndpoint: await detectComputer(computer.endpoints), online: false })))
   res.json(statuses.map(item => ({ ...item, online: Boolean(item.detectedEndpoint) })))
 }))
@@ -96,7 +97,26 @@ app.post('/api/computers', requireAuth, route(async (req, res) => {
   if (new Set(endpoints.map(endpoint => `${endpoint.ipAddress}:${endpoint.port}`)).size !== endpoints.length) return res.status(400).json({ error: 'Each IP address and port combination must be unique.' })
   if (!macAddress) return res.status(400).json({ error: 'Enter a valid MAC address.' })
   const computer = { id: randomUUID(), name, endpoints, macAddress, allowShutdown: Boolean(req.body.allowShutdown) }
-  await store.update(data => { data.computers.push(computer) }); res.status(201).json(computer)
+  await store.update(data => { data.computers.push(computer) }); res.status(201).json({ ...computer, detectedEndpoint: null, online: null })
+}))
+app.put('/api/computers/:id', requireAuth, route(async (req, res) => {
+  const name = String(req.body.name ?? '').trim()
+  const submittedEndpoints: unknown[] = Array.isArray(req.body.endpoints) ? req.body.endpoints : []
+  const endpoints = submittedEndpoints.map(value => {
+    const endpoint = value as { ipAddress?: unknown; port?: unknown }
+    return { ipAddress: String(endpoint.ipAddress ?? '').trim(), port: Number(endpoint.port) }
+  })
+  const macAddress = normalizeMac(String(req.body.macAddress ?? ''))
+  if (!name || name.length > 80) return res.status(400).json({ error: 'Enter a computer name up to 80 characters.' })
+  if (!endpoints.length || endpoints.length > 10 || endpoints.some(endpoint => !isAllowedHost(endpoint.ipAddress))) return res.status(400).json({ error: 'Enter 1 to 10 valid IP addresses or local host aliases.' })
+  if (endpoints.some(endpoint => !Number.isInteger(endpoint.port) || endpoint.port < 1 || endpoint.port > 65535)) return res.status(400).json({ error: 'Every port must be a number from 1 to 65535.' })
+  if (new Set(endpoints.map(endpoint => `${endpoint.ipAddress}:${endpoint.port}`)).size !== endpoints.length) return res.status(400).json({ error: 'Each IP address and port combination must be unique.' })
+  if (!macAddress) return res.status(400).json({ error: 'Enter a valid MAC address.' })
+  const computer = { id: String(req.params.id), name, endpoints, macAddress, allowShutdown: Boolean(req.body.allowShutdown) }
+  let found = false
+  await store.update(data => { const index = data.computers.findIndex(item => item.id === req.params.id); if (index >= 0) { data.computers[index] = computer; found = true } })
+  if (!found) return res.status(404).json({ error: 'Computer not found.' })
+  res.json({ ...computer, detectedEndpoint: null, online: null })
 }))
 app.delete('/api/computers/:id', requireAuth, route(async (req, res) => {
   let found = false

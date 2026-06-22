@@ -52,12 +52,22 @@ openssl rand -hex 32
 Then run:
 
 ```bash
-docker compose up --build -d
+docker compose --project-name cluster-hub up --build -d
 ```
 
 ClusterHub is available at [http://localhost:3000](http://localhost:3000). The account and computers are kept in the `cluster-hub-data` Docker volume.
 
 For a reverse proxy, forward the public HTTPS subdomain to port 3000. `NODE_ENV=production` makes the session cookie HTTPS-only. Keep the generated `SESSION_SECRET` stable or existing sessions will be invalidated.
+
+### Remove Docker resources
+
+To delete only the containers, images, and volumes created for the `cluster-hub` Compose project, run this command from the project directory:
+
+```bash
+docker compose --project-name cluster-hub down --volumes --rmi all --remove-orphans
+```
+
+The explicit project name prevents Docker Compose from targeting resources belonging to other Compose projects. This permanently deletes the account and computer data stored in the `cluster-hub-data` volume.
 
 ## Networking note
 
