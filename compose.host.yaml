@@ -3,11 +3,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    ports:
-      - "3000:3000"
+    network_mode: host
     environment:
+      PORT: ${PORT:-3000}
       SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in your .env file}
-      CLUSTER_HUB_DOCKER_NETWORK: bridge
+      CLUSTER_HUB_DOCKER_NETWORK: host
       WOL_BROADCASTS: ${WOL_BROADCASTS:-}
       WOL_PORTS: ${WOL_PORTS:-}
     volumes:

@@ -52,3 +52,16 @@ test('wake magic packet contains the target MAC address repeated 16 times', () =
   assert.equal(packet.subarray(0, 6).toString('hex'), 'ffffffffffff')
   assert.equal(packet.subarray(6).toString('hex'), '001122334455'.repeat(16))
 })
+
+test('docker bridge mode does not include container-local interface broadcasts', () => {
+  const original = process.env.CLUSTER_HUB_DOCKER_NETWORK
+  process.env.CLUSTER_HUB_DOCKER_NETWORK = 'bridge'
+  try {
+    assert.deepEqual(wakeBroadcasts([{ ipAddress: '10.0.1.139', port: 8732 }], '192.168.1.255', {
+      eth0: [{ address: '172.19.0.2', netmask: '255.255.0.0', family: 'IPv4', mac: '00:11:22:33:44:55', internal: false, cidr: '172.19.0.2/16' }],
+    }), ['192.168.1.255', '255.255.255.255', '10.0.1.255', '10.0.1.139'])
+  } finally {
+    if (original === undefined) delete process.env.CLUSTER_HUB_DOCKER_NETWORK
+    else process.env.CLUSTER_HUB_DOCKER_NETWORK = original
+  }
+})

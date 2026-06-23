@@ -61,6 +61,10 @@ function numberToIpv4(value: number) {
   return [24, 16, 8, 0].map(shift => (value >>> shift) & 255).join('.')
 }
 
+function includeLocalInterfaceBroadcasts() {
+  return process.env.CLUSTER_HUB_DOCKER_NETWORK !== 'bridge'
+}
+
 export function localIpv4Broadcasts(interfaces: NodeJS.Dict<NetworkInterfaceInfo[]> = networkInterfaces()) {
   return unique(Object.values(interfaces).flatMap(entries => entries ?? []).map(entry => {
     if (entry.family !== 'IPv4' || entry.internal || !entry.netmask) return null
@@ -72,7 +76,8 @@ export function wakeAddresses(endpoints: NetworkEndpoint[], value = process.env.
   const configured = value?.split(',').map(item => item.trim()).filter(Boolean) ?? []
   const inferred = endpoints.map(endpoint => inferredIpv4Broadcast(endpoint.ipAddress)).filter((address): address is string => Boolean(address))
   const endpointIps = endpoints.map(endpoint => endpoint.ipAddress).filter(address => isIP(address) === 4)
-  return unique([...configured, defaultWakeBroadcast, ...inferred, ...localIpv4Broadcasts(interfaces), ...endpointIps])
+  const localBroadcasts = includeLocalInterfaceBroadcasts() ? localIpv4Broadcasts(interfaces) : []
+  return unique([...configured, defaultWakeBroadcast, ...inferred, ...localBroadcasts, ...endpointIps])
 }
 
 export function wakeBroadcasts(endpoints: NetworkEndpoint[], value = process.env.WOL_BROADCASTS, interfaces = networkInterfaces()) {
@@ -92,6 +97,7 @@ export function wakeMagicPacket(macAddress: string) {
 export async function wake(macAddress: string, endpoints: NetworkEndpoint[] = []) {
   const packet = wakeMagicPacket(macAddress)
   const targets = wakeTargets(endpoints)
+  if (process.env.CLUSTER_HUB_DOCKER_NETWORK === 'bridge') console.warn('Wake-on-LAN is running in Docker bridge mode; UDP broadcasts may not reach the physical LAN. Use compose.host.yaml with Docker host networking for reliable WOL.')
   console.info(`Wake-on-LAN sending magic packet for ${macAddress} to UDP targets ${targets.map(target => `${target.address}:${target.port}`).join(', ')}`)
   await new Promise<void>((resolve, reject) => {
     const socket = dgram.createSocket('udp4')

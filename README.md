@@ -59,6 +59,16 @@ docker compose --project-name cluster-hub up --build -d
 
 ClusterHub is available at [http://localhost:3000](http://localhost:3000). The account and computers are kept in the `cluster-hub-data` Docker volume.
 
+### Docker with reliable Wake-on-LAN
+
+Wake-on-LAN needs packets to leave through the host's LAN interface. Docker bridge networking can keep UDP broadcasts inside Docker's virtual network, especially on Docker Desktop. For WOL, prefer host networking:
+
+```bash
+docker compose --project-name cluster-hub -f compose.host.yaml up --build -d
+```
+
+ClusterHub is still available at [http://localhost:3000](http://localhost:3000), or at the port set with `PORT`. On Docker Desktop, enable host networking first in Docker Desktop settings: Resources, Network, Enable host networking, then Apply and restart. Host networking requires Docker Desktop 4.34 or later, and Docker notes that TCP and UDP are supported in this mode.
+
 For a reverse proxy, forward the public HTTPS subdomain to port 3000. `NODE_ENV=production` makes the session cookie HTTPS-only. Keep the generated `SESSION_SECRET` stable or existing sessions will be invalidated.
 
 ### Remove Docker resources
@@ -73,4 +83,4 @@ The explicit project name prevents Docker Compose from targeting resources belon
 
 ## Networking note
 
-Wake-on-LAN broadcasts from a Docker bridge work on many Linux hosts, but network topology and Docker configuration vary. If the packet does not reach the LAN, run with host networking on Linux or configure a directed broadcast for the host network. Set `WOL_BROADCASTS` to a comma-separated list such as `192.168.1.255,10.0.0.255` when your subnet is not a `/24`, and set `WOL_PORTS` if your network expects specific UDP ports. The HTTP health and shutdown endpoints must also be reachable from inside the container.
+Wake-on-LAN broadcasts from Docker bridge mode are best-effort only. If the packet does not reach the LAN, use `compose.host.yaml` or run ClusterHub directly on the LAN host. Set `WOL_BROADCASTS` to a comma-separated list such as `192.168.1.255,10.0.0.255` when your subnet is not a `/24`, and set `WOL_PORTS` if your network expects specific UDP ports. The HTTP health and shutdown endpoints must also be reachable from ClusterHub.
