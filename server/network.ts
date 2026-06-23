@@ -1,5 +1,6 @@
 import dgram from 'node:dgram'
 import { isIP } from 'node:net'
+import { networkInterfaces, type NetworkInterfaceInfo } from 'node:os'
 import type { NetworkEndpoint } from './store.js'
 
 const defaultWakePorts = [9, 7]
@@ -52,17 +53,42 @@ function inferredIpv4Broadcast(address: string) {
   return `${octets[0]}.${octets[1]}.${octets[2]}.255`
 }
 
-export function wakeBroadcasts(endpoints: NetworkEndpoint[], value = process.env.WOL_BROADCASTS) {
+function ipv4ToNumber(address: string) {
+  return address.split('.').reduce((total, octet) => (total << 8) + Number(octet), 0) >>> 0
+}
+
+function numberToIpv4(value: number) {
+  return [24, 16, 8, 0].map(shift => (value >>> shift) & 255).join('.')
+}
+
+export function localIpv4Broadcasts(interfaces: NodeJS.Dict<NetworkInterfaceInfo[]> = networkInterfaces()) {
+  return unique(Object.values(interfaces).flatMap(entries => entries ?? []).map(entry => {
+    if (entry.family !== 'IPv4' || entry.internal || !entry.netmask) return null
+    return numberToIpv4((ipv4ToNumber(entry.address) | (~ipv4ToNumber(entry.netmask) >>> 0)) >>> 0)
+  }).filter((address): address is string => Boolean(address)))
+}
+
+export function wakeAddresses(endpoints: NetworkEndpoint[], value = process.env.WOL_BROADCASTS, interfaces = networkInterfaces()) {
   const configured = value?.split(',').map(item => item.trim()).filter(Boolean) ?? []
   const inferred = endpoints.map(endpoint => inferredIpv4Broadcast(endpoint.ipAddress)).filter((address): address is string => Boolean(address))
-  return unique([...configured, defaultWakeBroadcast, ...inferred])
+  const endpointIps = endpoints.map(endpoint => endpoint.ipAddress).filter(address => isIP(address) === 4)
+  return unique([...configured, defaultWakeBroadcast, ...inferred, ...localIpv4Broadcasts(interfaces), ...endpointIps])
+}
+
+export function wakeBroadcasts(endpoints: NetworkEndpoint[], value = process.env.WOL_BROADCASTS, interfaces = networkInterfaces()) {
+  return wakeAddresses(endpoints, value, interfaces)
+}
+
+export function wakeTargets(endpoints: NetworkEndpoint[] = []) {
+  return wakeAddresses(endpoints).flatMap(address => wakePorts().map(port => ({ address, port })))
 }
 
 export async function wake(macAddress: string, endpoints: NetworkEndpoint[] = []) {
   const mac = Buffer.from(macAddress.replaceAll(':', ''), 'hex')
   if (mac.length !== 6) throw new Error('Invalid MAC address')
   const packet = Buffer.concat([Buffer.alloc(6, 0xff), ...Array.from({ length: 16 }, () => mac)])
-  const targets = wakeBroadcasts(endpoints).flatMap(address => wakePorts().map(port => ({ address, port })))
+  const targets = wakeTargets(endpoints)
+  console.info(`Wake-on-LAN sending ${targets.length} packets to ${targets.map(target => `${target.address}:${target.port}`).join(', ')}`)
   await new Promise<void>((resolve, reject) => {
     const socket = dgram.createSocket('udp4')
     const errors: Error[] = []
