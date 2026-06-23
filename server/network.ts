@@ -83,12 +83,16 @@ export function wakeTargets(endpoints: NetworkEndpoint[] = []) {
   return wakeAddresses(endpoints).flatMap(address => wakePorts().map(port => ({ address, port })))
 }
 
-export async function wake(macAddress: string, endpoints: NetworkEndpoint[] = []) {
+export function wakeMagicPacket(macAddress: string) {
   const mac = Buffer.from(macAddress.replaceAll(':', ''), 'hex')
   if (mac.length !== 6) throw new Error('Invalid MAC address')
-  const packet = Buffer.concat([Buffer.alloc(6, 0xff), ...Array.from({ length: 16 }, () => mac)])
+  return Buffer.concat([Buffer.alloc(6, 0xff), ...Array.from({ length: 16 }, () => mac)])
+}
+
+export async function wake(macAddress: string, endpoints: NetworkEndpoint[] = []) {
+  const packet = wakeMagicPacket(macAddress)
   const targets = wakeTargets(endpoints)
-  console.info(`Wake-on-LAN sending ${targets.length} packets to ${targets.map(target => `${target.address}:${target.port}`).join(', ')}`)
+  console.info(`Wake-on-LAN sending magic packet for ${macAddress} to UDP targets ${targets.map(target => `${target.address}:${target.port}`).join(', ')}`)
   await new Promise<void>((resolve, reject) => {
     const socket = dgram.createSocket('udp4')
     const errors: Error[] = []
