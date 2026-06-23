@@ -7,6 +7,8 @@ services:
       - "3000:3000"
     environment:
       SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in your .env file}
+      WOL_BROADCASTS: ${WOL_BROADCASTS:-}
+      WOL_PORTS: ${WOL_PORTS:-}
     volumes:
       - cluster-hub-data:/app/data
     restart: unless-stopped

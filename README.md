@@ -23,6 +23,8 @@ Each managed computer must expose HTTP on its configured port (default `8732`):
 
 Wake-on-LAN must be enabled in the target computer's firmware and network adapter settings. ClusterHub accepts any valid public or private IPv4/IPv6 address, plus single-label host aliases such as `w11-vm`. Each address requires a port from `1` to `65535`.
 
+Wake packets are sent to `255.255.255.255` and to inferred IPv4 `/24` directed broadcasts for each configured endpoint, such as `192.168.1.255` for `192.168.1.42`. By default ClusterHub sends on UDP ports `9` and `7`.
+
 ## Local development
 
 Requires Node.js 22+ and pnpm 11+.
@@ -71,4 +73,4 @@ The explicit project name prevents Docker Compose from targeting resources belon
 
 ## Networking note
 
-Wake-on-LAN broadcasts from a Docker bridge work on many Linux hosts, but network topology and Docker configuration vary. If the packet does not reach the LAN, run with host networking on Linux or configure a directed broadcast for the host network. The HTTP health and shutdown endpoints must also be reachable from inside the container.
+Wake-on-LAN broadcasts from a Docker bridge work on many Linux hosts, but network topology and Docker configuration vary. If the packet does not reach the LAN, run with host networking on Linux or configure a directed broadcast for the host network. Set `WOL_BROADCASTS` to a comma-separated list such as `192.168.1.255,10.0.0.255` when your subnet is not a `/24`, and set `WOL_PORTS` if your network expects specific UDP ports. The HTTP health and shutdown endpoints must also be reachable from inside the container.

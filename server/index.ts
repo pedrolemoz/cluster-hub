@@ -127,7 +127,7 @@ app.post('/api/computers/:id/wake', requireAuth, route(async (req, res) => {
   const computer = (await store.read()).computers.find(item => item.id === req.params.id)
   if (!computer) return res.status(404).json({ error: 'Computer not found.' })
   if (!claimPowerAction(computer.id, res)) return
-  await wake(computer.macAddress); res.json({ status: 'wake_sent' })
+  await wake(computer.macAddress, computer.endpoints); res.json({ status: 'wake_sent' })
 }))
 app.post('/api/computers/:id/shutdown', requireAuth, route(async (req, res) => {
   const computer = (await store.read()).computers.find(item => item.id === req.params.id)
